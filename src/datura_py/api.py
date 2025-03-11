@@ -11,7 +11,6 @@ from .protocol import (
     ToolEnum,
     ModelEnum,
     DateFilterEnum,
-    TwitterByUrlsResponse,
     TwitterByIdResponse,
 )
 
@@ -230,7 +229,7 @@ class Datura:
         )
         return BasicWebSearchResponse(**response)
 
-    def twitter_by_urls(self, urls: List[str]) -> TwitterByUrlsResponse:
+    def twitter_by_urls(self, urls: List[str]) -> List[TwitterByIdResponse]:
         """
         Performs a Twitter search by URLs with the given payload.
 

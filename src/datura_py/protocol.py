@@ -642,12 +642,12 @@ class BasicWebSearchResponse(BaseModel):
 
 
 class TwitterUserEntities(BaseModel):
-    description: Dict[str, List[Dict[str, Any]]] = Field(default_factory=dict)
-    url: Optional[Dict[str, List[Dict[str, Any]]]] = Field(default_factory=dict)
+    description: Dict[str, List[Dict[str, Any]]]
+    url: Optional[Dict[str, List[Dict[str, Any]]]]
 
 
 class TwitterUser(BaseModel):
-    id: str = Field(..., description="User ID")
+    id: str
     url: HttpUrl
     name: str
     username: str
@@ -666,15 +666,15 @@ class TwitterUser(BaseModel):
     can_dm: bool
     can_media_tag: bool
     location: Optional[str]
-    pinned_tweet_ids: List[str] = Field(default_factory=list)
+    pinned_tweet_ids: List[str]
 
 
 class TwitterTweetEntities(BaseModel):
-    hashtags: List[Dict[str, Any]] = Field(default_factory=list)
-    symbols: List[Dict[str, Any]] = Field(default_factory=list)
-    timestamps: List[Dict[str, Any]] = Field(default_factory=list)
-    urls: List[Dict[str, Any]] = Field(default_factory=list)
-    user_mentions: List[Dict[str, Any]] = Field(default_factory=list)
+    hashtags: List[Dict[str, Any]]
+    symbols: List[Dict[str, Any]]
+    timestamps: List[Dict[str, Any]]
+    urls: List[Dict[str, Any]]
+    user_mentions: List[Dict[str, Any]]
 
 
 class TwitterByIdResponse(BaseModel):
@@ -688,7 +688,7 @@ class TwitterByIdResponse(BaseModel):
     bookmark_count: int
     url: HttpUrl
     created_at: str
-    media: List[Any] = Field(default_factory=list)
+    media: List[Any]
     is_quote_tweet: bool
     is_retweet: bool
     lang: str
@@ -700,8 +700,4 @@ class TwitterByIdResponse(BaseModel):
     quote: Optional[str]
     display_text_range: List[int]
     entities: TwitterTweetEntities
-    extended_entities: Dict[str, Any] = Field(default_factory=dict)
-
-
-class TwitterByUrlsResponse(BaseModel):
-    __root__: List[TwitterByIdResponse]
+    extended_entities: Dict[str, Any]

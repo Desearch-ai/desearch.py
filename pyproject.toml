@@ -1,23 +1,47 @@
-[project]
-authors = [
-  {name = "Levan Changelia", email = "changelia97@gmail.com"},
-]
-classifiers = [
-  "Programming Language :: Python :: 3",
-  "License :: OSI Approved :: MIT License",
-  "Operating System :: OS Independent",
-]
-description = "A Python SDK for interacting with the Datura API service."
-license = {text = "MIT"}
-name = "datura_py"
+# [project]
+# authors = [
+#   {name = "Datura AI", email = ""},
+# ]
+# classifiers = [
+#   "Programming Language :: Python :: 3",
+#   "License :: OSI Approved :: MIT License",
+#   "Operating System :: OS Independent",
+# ]
+# description = "A Python SDK for interacting with the Datura API service."
+# license = {text = "MIT"}
+# name = "datura_py"
+# readme = "README.md"
+# requires-python = ">=3.6"
+# version = "0.0.6"
+
+# [build-system]
+# build-backend = "setuptools.build_meta"
+# requires = ["setuptools", "wheel"]
+
+# [tool.setuptools.packages.find]
+# include = ["datura_py"]
+# where = ["src"]
+[tool.poetry]
+authors = ["Datura AI <hello@datura.ai>"]
+description = "Python SDK for Datura API."
+name = "datura-py"
 readme = "README.md"
-requires-python = ">=3.6"
-version = "0.0.2"
+version = "0.0.3"
+
+[tool.poetry.dependencies]
+python = "^3.9"
+requests = "^2.32.3"
+typing-extensions = "^4.12.2"
+
+[tool.poetry.group.dev.dependencies]
+docutils = "^0.21.2"
+python-dotenv = "^1.0.1"
+setuptools = "^74.0.0"
+twine = "^5.1.1"
 
 [build-system]
-build-backend = "setuptools.build_meta"
-requires = ["setuptools", "wheel"]
+build-backend = "poetry.core.masonry.api"
+requires = ["poetry-core"]
 
-[tool.setuptools.packages.find]
-include = ["datura_py"]
-where = ["src"]
+[virtualenvs]
+in-project = true
