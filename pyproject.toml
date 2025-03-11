@@ -14,7 +14,11 @@ typing-extensions = "^4.12.2"
 docutils = "^0.21.2"
 python-dotenv = "^1.0.1"
 setuptools = "^74.0.0"
+sphinx = "^7.0.0"
 twine = "^5.1.1"
+
+[tool.poetry.scripts]
+build-docs = "sphinx:main"
 
 [build-system]
 build-backend = "poetry.core.masonry.api"
