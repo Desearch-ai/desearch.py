@@ -3,9 +3,10 @@ authors = ["Datura AI <hello@datura.ai>"]
 description = "Python SDK for Datura API."
 name = "datura-py"
 readme = "README.md"
-version = "0.0.3"
+version = "0.0.9"
 
 [tool.poetry.dependencies]
+pydantic = "^1.10.2"
 python = "^3.9"
 requests = "^2.32.3"
 typing-extensions = "^4.12.2"
@@ -19,6 +20,7 @@ twine = "^5.1.1"
 
 [tool.poetry.scripts]
 build-docs = "sphinx:main"
+datura-api = "datura_py.api:main"
 
 [build-system]
 build-backend = "poetry.core.masonry.api"

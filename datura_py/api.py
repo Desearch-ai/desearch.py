@@ -98,6 +98,14 @@ class Datura:
             "date_filter": date_filter,
             "streaming": streaming,
         }
+
+        if streaming:
+            response = self.client.post(
+                f"{self.BASE_URL}/desearch/ai/search", json=payload, stream=True
+            )
+            response.raise_for_status()
+            return response.iter_content(chunk_size=8192)
+
         return self.handle_request(
             self.client.post, f"{self.BASE_URL}/desearch/ai/search", json=payload
         )
@@ -140,7 +148,7 @@ class Datura:
             f"{self.BASE_URL}/desearch/ai/search/links/twitter",
             json=payload,
         )
-        return TwitterLinksSearchResponse(**response)
+        return response
 
     def basic_twitter_search(
         self,
@@ -209,7 +217,7 @@ class Datura:
         response = self.handle_request(
             self.client.post, f"{self.BASE_URL}/twitter", json=payload
         )
-        return BasicTwitterSearchResponse(**response)
+        return response
 
     def basic_web_search(
         self, query: str, num: int, start: int
@@ -227,7 +235,7 @@ class Datura:
         response = self.handle_request(
             self.client.get, f"{self.BASE_URL}/web", params=payload
         )
-        return BasicWebSearchResponse(**response)
+        return response
 
     def twitter_by_urls(self, urls: List[str]) -> List[TwitterByIdResponse]:
         """
