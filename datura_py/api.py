@@ -244,7 +244,7 @@ class Datura:
             self.client.post, f"{self.BASE_URL}/twitter/urls", json=payload
         )
 
-        return TwitterByUrlsResponse(**response)
+        return response
 
     def twitter_by_id(self, id: str) -> TwitterByIdResponse:
         """
