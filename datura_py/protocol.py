@@ -1,6 +1,6 @@
 from enum import Enum
 from typing import List, Optional, Union, Dict, Any
-from pydantic import BaseModel, Field, HttpUrl
+from pydantic import BaseModel, Field
 
 
 def format_enum_values(enum):
@@ -598,7 +598,7 @@ class WebSearchResultItem(BaseModel):
         ...,
         description="Coffee farmers in Colombia, the world's No. 2 arabica producer, have failed to deliver up to 1 million bags of beans this year or nearly 10% ...",
     )
-    link: HttpUrl = Field(
+    link: str = Field(
         ...,
         description="https://www.reuters.com/world/americas/exclusive-major-coffee-buyers-face-losses-colombia-farmers-fail-deliver-2021-10-11/",
     )
@@ -648,7 +648,7 @@ class TwitterUserEntities(BaseModel):
 
 class TwitterUser(BaseModel):
     id: str
-    url: HttpUrl
+    url: str
     name: str
     username: str
     created_at: str
@@ -657,8 +657,8 @@ class TwitterUser(BaseModel):
     followers_count: int
     listed_count: int
     media_count: int
-    profile_image_url: HttpUrl
-    profile_banner_url: Optional[HttpUrl]
+    profile_image_url: str
+    profile_banner_url: Optional[str]
     statuses_count: int
     verified: bool
     is_blue_verified: bool
@@ -686,7 +686,7 @@ class TwitterByIdResponse(BaseModel):
     like_count: int
     quote_count: int
     bookmark_count: int
-    url: HttpUrl
+    url: str
     created_at: str
     media: List[Any]
     is_quote_tweet: bool
