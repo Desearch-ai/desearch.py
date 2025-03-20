@@ -166,6 +166,7 @@ class Datura:
         min_retweets: int = None,
         min_replies: int = None,
         min_likes: int = None,
+        count: int = 10,
     ) -> BasicTwitterSearchResponse:
         """
         Performs a basic Twitter search with the given payload.
@@ -191,7 +192,8 @@ class Datura:
                 "is_image": true,
                 "min_retweets": 1,
                 "min_replies": 1,
-                "min_likes": 1
+                "min_likes": 1,
+                "count": 10
             }
         """
         payload = {
@@ -211,6 +213,7 @@ class Datura:
                 "min_retweets": min_retweets,
                 "min_replies": min_replies,
                 "min_likes": min_likes,
+                "count": count,
             }.items()
             if v is not None
         }

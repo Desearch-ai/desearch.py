@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="datura_py",
-    version="0.0.11",
+    version="0.0.13",
     description="A Python SDK for interacting with the Datura API service.",
     author="Datura",
     author_email="",
