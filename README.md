@@ -95,4 +95,24 @@ Import the package and initialize the Datura client with your API key:
     #Fetch Tweets by ID
     result = datura.twitter_by_id(id="123456789")
 
+    #Fetch Tweets by User
+    result = datura.tweets_by_user(
+        user="elonmusk",
+        query="Bittensor",
+        count=10
+    )
+
+    #Fetch Latest Tweets
+    result = datura.latest_twits(
+        user="elonmusk",
+        count=10
+    )
+
+    #Fetch Tweets and Replies by User
+    result = datura.tweets_and_replies_by_user(
+        user="elonmusk",
+        query="Bittensor",
+        count=10
+    )
+
 ```
