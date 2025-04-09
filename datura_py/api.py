@@ -256,9 +256,9 @@ class Datura:
         Returns:
             TwitterByUrlsResponse: The response from the Twitter search by URLs.
         """
-        payload = {"urls": urls}
+        params = {"urls": ",".join(urls)}
         response = self.handle_request(
-            self.client.post, f"{self.BASE_URL}/twitter/urls", json=payload
+            self.client.get, f"{self.BASE_URL}/twitter/urls", params=params
         )
 
         return response
@@ -275,7 +275,8 @@ class Datura:
         """
         response = self.handle_request(
             self.client.get,
-            f"{self.BASE_URL}/twitter/{id}",
+            f"{self.BASE_URL}/twitter/post",
+            params={"id": id},
         )
 
         return TwitterByIdResponse(**response)
@@ -296,11 +297,11 @@ class Datura:
         """
         payload = {"user": user, "query": query, "count": count}
         response = self.handle_request(
-            self.client.get, f"{self.BASE_URL}/twitter/user", params=payload
+            self.client.get, f"{self.BASE_URL}/twitter/post/user", params=payload
         )
         return response
 
-    def latest_twits(self, user: str, count: int = 10) -> BasicTwitterSearchResponse:
+    def latest_tweets(self, user: str, count: int = 10) -> BasicTwitterSearchResponse:
         """
         Performs a latest twits search with the given arguments.
 
@@ -354,5 +355,25 @@ class Datura:
         payload = {"post_id": post_id, "count": count, "query": query}
         response = self.handle_request(
             self.client.get, f"{self.BASE_URL}/twitter/replies/post", params=payload
+        )
+        return response
+
+    def twitter_retweets_post(
+        self, post_id: str, count: int = 10, query: str = ""
+    ) -> BasicTwitterSearchResponse:
+        """
+        Performs a tweets and replies search with the given arguments.
+
+        Args:
+            post_id (str): The post id to search for.
+            count (int): The number of tweets to return.
+            query (str): The query to search for.
+
+        Returns:
+            BasicTwitterSearchResponse: The response from the web search.
+        """
+        payload = {"post_id": post_id, "count": count, "query": query}
+        response = self.handle_request(
+            self.client.get, f"{self.BASE_URL}/twitter/retweets/post", params=payload
         )
         return response
