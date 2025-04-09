@@ -1,6 +1,6 @@
 from enum import Enum
 from typing import List, Optional, Union, Dict, Any
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, HttpUrl
 
 
 def format_enum_values(enum):
@@ -716,3 +716,56 @@ class TwitterByIdResponse(BaseModel):
     display_text_range: List[int]
     entities: TwitterTweetEntities
     extended_entities: Dict[str, Any]
+
+
+class TwitterUserResponse(BaseModel):
+    id: str = Field(..., description="User ID")
+    screen_name: str = Field(description="User's screen name")
+    is_blue_verified: bool = Field(
+        description="Indicates if the user is Blue Tick verified"
+    )
+    following: bool = Field(description="Indicates if the user is being followed")
+    can_dm: bool = Field(description="Indicates if the user can be direct messaged")
+    can_media_tag: bool = Field(
+        description="Indicates if the user can be tagged in media"
+    )
+    created_at: str = Field(description="Account creation date")
+    default_profile: bool = Field(
+        description="Indicates if the user has the default profile"
+    )
+    default_profile_image: bool = Field(
+        description="Indicates if the user has the default profile image"
+    )
+    description: str = Field(description="User description")
+    entities: TwitterUserEntities = Field(description="User entities")
+    fast_followers_count: int = Field(description="Count of fast followers")
+    favourites_count: int = Field(description="Count of favourites")
+    followers_count: int = Field(description="Count of followers")
+    friends_count: int = Field(description="Count of friends")
+    has_custom_timelines: bool = Field(
+        description="Indicates if the user has custom timelines"
+    )
+    is_translator: bool = Field(description="Indicates if the user is a translator")
+    listed_count: int = Field(description="Count of lists the user is on")
+    location: str = Field(description="User location")
+    media_count: int = Field(description="Count of media")
+    name: str = Field(description="User's name")
+    normal_followers_count: int = Field(description="Count of normal followers")
+    pinned_tweet_ids_str: List[str] = Field(description="List of pinned tweet IDs")
+    possibly_sensitive: bool = Field(
+        description="Indicates if the user is possibly sensitive"
+    )
+    profile_banner_url: Optional[HttpUrl] = Field(
+        description="URL of the profile banner"
+    )
+    profile_image_url_https: Optional[HttpUrl] = Field(
+        description="HTTPS URL of the profile image"
+    )
+    profile_interstitial_type: str = Field(description="Profile interstitial type")
+    statuses_count: int = Field(description="Count of statuses")
+    translator_type: str = Field(description="Translator type")
+    verified: bool = Field(description="Indicates if the user is verified")
+    want_retweets: bool = Field(description="Indicates if the user wants retweets")
+    withheld_in_countries: List[str] = Field(
+        description="List of countries where the user is withheld"
+    )
