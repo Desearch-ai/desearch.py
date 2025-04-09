@@ -62,13 +62,13 @@ class AISearchPayload(BaseModel):
         ...,
         description="A list of tools to be used for the search",
         example=[
-            ToolEnum.WEB_SEARCH.value,
-            ToolEnum.HACKER_NEWS_SEARCH.value,
-            ToolEnum.REDDIT_SEARCH.value,
-            ToolEnum.WIKIPEDIA_SEARCH.value,
-            ToolEnum.YOUTUBE_SEARCH.value,
-            ToolEnum.TWITTER_SEARCH.value,
-            ToolEnum.ARXIV_SEARCH.value,
+            ToolEnum.web.value,
+            ToolEnum.hacker_news.value,
+            ToolEnum.reddit.value,
+            ToolEnum.wikipedia.value,
+            ToolEnum.youtube.value,
+            ToolEnum.twitter.value,
+            ToolEnum.arxiv.value,
         ],
     )
     model: ModelEnum = Field(
@@ -152,13 +152,13 @@ class WebLinksPayload(BaseModel):
         ...,
         description="List of tools to search with",
         example=[
-            ToolEnum.WEB_SEARCH.value,
-            ToolEnum.HACKER_NEWS_SEARCH.value,
-            ToolEnum.REDDIT_SEARCH.value,
-            ToolEnum.WIKIPEDIA_SEARCH.value,
-            ToolEnum.YOUTUBE_SEARCH.value,
-            ToolEnum.TWITTER_SEARCH.value,
-            ToolEnum.ARXIV_SEARCH.value,
+            ToolEnum.web.value,
+            ToolEnum.hacker_news.value,
+            ToolEnum.reddit.value,
+            ToolEnum.wikipedia.value,
+            ToolEnum.youtube.value,
+            ToolEnum.twitter.value,
+            ToolEnum.arxiv.value,
         ],
     )
 
