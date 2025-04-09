@@ -14,6 +14,7 @@ from .protocol import (
     TwitterByIdResponse,
     ResultTypeEnum,
     WebToolEnum,
+    TwitterUserResponse,
 )
 
 # Configure logging
@@ -202,7 +203,7 @@ class Datura:
                 "count": 10
             }
         """
-        params = {
+        payload = {
             k: v
             for k, v in {
                 "query": query,
@@ -224,7 +225,7 @@ class Datura:
             if v is not None
         }
         response = self.handle_request(
-            self.client.get, f"{self.BASE_URL}/twitter", params=params
+            self.client.get, f"{self.BASE_URL}/twitter", params=payload
         )
         return response
 
@@ -256,9 +257,9 @@ class Datura:
         Returns:
             TwitterByUrlsResponse: The response from the Twitter search by URLs.
         """
-        params = {"urls": ",".join(urls)}
+        payload = {"urls": ",".join(urls)}
         response = self.handle_request(
-            self.client.get, f"{self.BASE_URL}/twitter/urls", params=params
+            self.client.get, f"{self.BASE_URL}/twitter/urls", params=payload
         )
 
         return response
@@ -375,5 +376,21 @@ class Datura:
         payload = {"post_id": post_id, "count": count, "query": query}
         response = self.handle_request(
             self.client.get, f"{self.BASE_URL}/twitter/retweets/post", params=payload
+        )
+        return response
+
+    def tweeter_user(self, user: str) -> TwitterUserResponse:
+        """
+        Performs a tweets and replies search with the given arguments.
+
+        Args:
+            user (str): The user to search for.
+
+        Returns:
+            TwitterUserResponse: The response from the web search.
+        """
+        payload = {"user": user}
+        response = self.handle_request(
+            self.client.get, f"{self.BASE_URL}/twitter/user", params=payload
         )
         return response
