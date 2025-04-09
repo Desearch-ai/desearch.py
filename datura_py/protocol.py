@@ -10,14 +10,23 @@ def format_enum_values(enum):
     return f"Options: {values}"
 
 
-class ToolEnum(Enum):
-    WEB_SEARCH = "Web Search"
-    HACKER_NEWS_SEARCH = "Hacker News Search"
-    REDDIT_SEARCH = "Reddit Search"
-    WIKIPEDIA_SEARCH = "Wikipedia Search"
-    YOUTUBE_SEARCH = "Youtube Search"
-    TWITTER_SEARCH = "Twitter Search"
-    ARXIV_SEARCH = "ArXiv Search"
+class ToolEnum(str, Enum):
+    web = "web"
+    hacker_news = "hackernews"
+    reddit = "reddit"
+    wikipedia = "wikipedia"
+    youtube = "youtube"
+    twitter = "twitter"
+    arxiv = "arxiv"
+
+
+class WebToolEnum(str, Enum):
+    web = ToolEnum.web.value
+    hacker_news = ToolEnum.hacker_news.value
+    reddit = ToolEnum.reddit.value
+    wikipedia = ToolEnum.wikipedia.value
+    youtube = ToolEnum.youtube.value
+    arxiv = ToolEnum.arxiv.value
 
 
 class ModelEnum(Enum):
@@ -35,6 +44,12 @@ class DateFilterEnum(Enum):
     PAST_2_MONTHS = "PAST_2_MONTHS"
     PAST_YEAR = "PAST_YEAR"
     PAST_2_YEARS = "PAST_2_YEARS"
+
+
+class ResultTypeEnum(Enum):
+    ONLY_LINKS = "ONLY_LINKS"
+    LINKS_WITH_SUMMARIES = "LINKS_WITH_SUMMARIES"
+    LINKS_WITH_FINAL_SUMMARY = "LINKS_WITH_FINAL_SUMMARY"
 
 
 class AISearchPayload(BaseModel):
