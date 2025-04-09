@@ -27,13 +27,13 @@ Import the package and initialize the Datura client with your API key:
     result = datura.ai_search(
         prompt="Bittensor",
         tools=[
-            "Web Search",
-            "Hacker News Search",
-            "Reddit Search",
-            "Wikipedia Search",
-            "Youtube Search",
-            "Twitter Search",
-            "ArXiv Search"
+            "web",
+            "hackernews",
+            "reddit",
+            "wikipedia",
+            "youtube",
+            "twitter",
+            "arxiv"
         ],
         model="NOVA",
         date_filter="PAST_24_HOURS",
@@ -50,13 +50,12 @@ Import the package and initialize the Datura client with your API key:
     result = datura.web_links_search(
         prompt="Bittensor",
         tools=[
-            "Web Search",
-            "Hacker News Search",
-            "Reddit Search",
-            "Wikipedia Search",
-            "Youtube Search",
-            "Twitter Search",
-            "ArXiv Search"
+            "web",
+            "hackernews",
+            "reddit",
+            "wikipedia",
+            "youtube",
+            "arxiv"
         ],
         model="NOVA",
     )
@@ -114,5 +113,23 @@ Import the package and initialize the Datura client with your API key:
         query="Bittensor",
         count=10
     )
+
+    #Fetch Replies by Post
+    result = datura.twitter_replies_post(
+        post_id="123456789",
+        count=10
+        query="Bittensor"
+    )
+
+    #Fetch Retweets by Post
+    result = datura.twitter_retweets_post(
+        post_id="123456789",
+        count=10,
+        query="Bittensor"
+    )
+
+    #Fetch Tweeter User
+    result = datura.tweeter_user(
+        user="elonmusk")
 
 ```
