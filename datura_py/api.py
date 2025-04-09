@@ -257,7 +257,7 @@ class Datura:
         Returns:
             TwitterByUrlsResponse: The response from the Twitter search by URLs.
         """
-        payload = {"urls": ",".join(urls)}
+        payload = {"urls": urls}
         response = self.handle_request(
             self.client.get, f"{self.BASE_URL}/twitter/urls", params=payload
         )
