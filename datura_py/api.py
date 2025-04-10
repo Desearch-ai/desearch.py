@@ -304,7 +304,7 @@ class Datura:
 
     def latest_tweets(self, user: str, count: int = 10) -> BasicTwitterSearchResponse:
         """
-        Performs a latest twits search with the given arguments.
+        Performs a latest tweets search with the given arguments.
 
         Args:
             user (str): The user to search for.

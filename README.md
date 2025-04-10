@@ -102,7 +102,7 @@ Import the package and initialize the Datura client with your API key:
     )
 
     #Fetch Latest Tweets
-    result = datura.latest_twits(
+    result = datura.latest_tweets(
         user="elonmusk",
         count=10
     )
