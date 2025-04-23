@@ -1,13 +1,13 @@
 from setuptools import setup, find_packages
 
 setup(
-    name="datura_py",
-    version="0.0.16",
-    description="A Python SDK for interacting with the Datura API service.",
-    author="Datura",
+    name="desearch_py",
+    version="1.0.0",
+    description="A Python SDK for interacting with the Desearch API service.",
+    author="Desearch",
     author_email="",
     license="MIT",
-    package_data={"datura_py": ["py.typed"]},
+    package_data={"desearch_py": ["py.typed"]},
     packages=find_packages(),
     install_requires=["requests", "typing-extensions", "pydantic"],
     python_requires=">=3.6",
