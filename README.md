@@ -1,22 +1,22 @@
-# Datura
+# Desearch
 
 
-Datura API in Python
+Desearch API in Python
 
-https://console.datura.ai/
+https://console.desearch.ai/
 
 ## Installation
 
-`pip install datura-py`
+`pip install desearch-py`
 
 ## Usage
 
-Import the package and initialize the Datura client with your API key:
+Import the package and initialize the Desearch client with your API key:
 
 ```python
-    from datura_py import Datura
+    from desearch_py import Desearch
 
-    datura = Datura(api_key="your-api-key")
+    desearch = Desearch(api_key="your-api-key")
 ```
 
 ## Common requests
@@ -24,7 +24,7 @@ Import the package and initialize the Datura client with your API key:
 ```python
     
     # Desearch AI Search
-    result = datura.ai_search(
+    result = desearch.ai_search(
         prompt="Bittensor",
         tools=[
             "web",
@@ -41,13 +41,13 @@ Import the package and initialize the Datura client with your API key:
     )
 
     #Desearch Twitter post search
-    result = datura.twitter_links_search(
+    result = desearch.twitter_links_search(
         prompt="Bittensor",
         model="NOVA",
     )
 
     #Desearch Web links search
-    result = datura.web_links_search(
+    result = desearch.web_links_search(
         prompt="Bittensor",
         tools=[
             "web",
@@ -61,7 +61,7 @@ Import the package and initialize the Datura client with your API key:
     )
 
     #Basic Twitter search
-    result = datura.basic_twitter_search(
+    result = desearch.basic_twitter_search(
         query="Whats going on with Bittensor",
         sort="Top",
         user="elonmusk",
@@ -80,56 +80,56 @@ Import the package and initialize the Datura client with your API key:
     )
 
     #Basic Web search
-    result = datura.basic_web_search(
+    result = desearch.basic_web_search(
         query="latest news on AI",
         num=10,
         start=0
     )
 
     #Fetch Tweets by URLs
-    result = datura.twitter_by_urls(
+    result = desearch.twitter_by_urls(
         urls=["https://twitter.com/elonmusk/status/1613000000000000000"]
     )
 
     #Fetch Tweets by ID
-    result = datura.twitter_by_id(id="123456789")
+    result = desearch.twitter_by_id(id="123456789")
 
     #Fetch Tweets by User
-    result = datura.tweets_by_user(
+    result = desearch.tweets_by_user(
         user="elonmusk",
         query="Bittensor",
         count=10
     )
 
     #Fetch Latest Tweets
-    result = datura.latest_tweets(
+    result = desearch.latest_tweets(
         user="elonmusk",
         count=10
     )
 
     #Fetch Tweets and Replies by User
-    result = datura.tweets_and_replies_by_user(
+    result = desearch.tweets_and_replies_by_user(
         user="elonmusk",
         query="Bittensor",
         count=10
     )
 
     #Fetch Replies by Post
-    result = datura.twitter_replies_post(
+    result = desearch.twitter_replies_post(
         post_id="123456789",
         count=10
         query="Bittensor"
     )
 
     #Fetch Retweets by Post
-    result = datura.twitter_retweets_post(
+    result = desearch.twitter_retweets_post(
         post_id="123456789",
         count=10,
         query="Bittensor"
     )
 
     #Fetch Tweeter User
-    result = datura.tweeter_user(
+    result = desearch.tweeter_user(
         user="elonmusk")
 
 ```

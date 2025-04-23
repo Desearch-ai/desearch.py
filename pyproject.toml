@@ -1,7 +1,7 @@
 [tool.poetry]
-authors = ["Datura AI <hello@datura.ai>"]
-description = "Python SDK for Datura API."
-name = "datura-py"
+authors = ["Desearch AI <hello@desearch.ai>"]
+description = "Python SDK for Desearch API."
+name = "desearch-py"
 readme = "README.md"
 version = "0.0.9"
 
@@ -20,7 +20,7 @@ twine = "^5.1.1"
 
 [tool.poetry.scripts]
 build-docs = "sphinx:main"
-datura-api = "datura_py.api:main"
+desearch-api = "desearch_py.api:main"
 
 [build-system]
 build-backend = "poetry.core.masonry.api"

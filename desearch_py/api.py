@@ -22,21 +22,21 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-class Datura:
+class Desearch:
     """
-    SDK for interacting with the Datura API.
+    SDK for interacting with the Desearch API.
 
     Attributes:
         client (requests.Session): The HTTP client used for making requests.
         base_url (str): The base URL for the API.
     """
 
-    BASE_URL = "https://apis.datura.ai"
+    BASE_URL = "https://api.desearch.ai"
     AUTH_HEADER = "Authorization"
 
     def __init__(self, api_key: str):
         """
-        Initializes the DaturaApiSDK with the provided API key.
+        Initializes the DesearchApiSDK with the provided API key.
 
         Args:
             api_key (str): The API key for authenticating requests.
