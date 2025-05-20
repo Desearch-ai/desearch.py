@@ -2,6 +2,8 @@ import requests
 import logging
 from typing import Any, Dict, Union, List
 
+from openai import OpenAI
+
 from .protocol import (
     AISearchResponse,
     WebLinksSearchResponse,
@@ -16,6 +18,8 @@ from .protocol import (
     WebToolEnum,
     TwitterUserResponse,
 )
+from .openai_utils import wrap_openai_client
+
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -394,3 +398,17 @@ class Desearch:
             self.client.get, f"{self.BASE_URL}/twitter/user", params=payload
         )
         return response
+
+    def wrap(self, client: OpenAI):
+        """
+        Wrap an OpenAI client with Desearch functionality.
+
+        This method delegates to the wrap_openai_client function in openai_utils.
+
+        Args:
+            client: The OpenAI client to wrap
+
+        Returns:
+            The wrapped OpenAI client with Desearch functionality
+        """
+        return wrap_openai_client(self, client)
