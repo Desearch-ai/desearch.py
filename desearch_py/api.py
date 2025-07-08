@@ -101,13 +101,17 @@ class Desearch:
             Union[AISearchResponse, dict, str]
         """
         payload = {
-            "prompt": prompt,
-            "tools": tools,
-            "model": model,
-            "date_filter": date_filter,
-            "streaming": streaming,
-            "result_type": result_type,
-            "system_message": system_message,
+            k: v
+            for k, v in {
+                "prompt": prompt,
+                "tools": tools,
+                "model": model,
+                "date_filter": date_filter,
+                "streaming": streaming,
+                "result_type": result_type,
+                "system_message": system_message,
+            }.items()
+            if v is not None
         }
 
         if streaming:
