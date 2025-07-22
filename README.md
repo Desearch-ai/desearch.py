@@ -35,7 +35,6 @@ Import the package and initialize the Desearch client with your API key:
             "twitter",
             "arxiv"
         ],
-        model="NOVA",
         date_filter="PAST_24_HOURS",
         streaming=False,
         result_type="LINKS_WITH_SUMMARIES",
@@ -44,8 +43,7 @@ Import the package and initialize the Desearch client with your API key:
 
     #Desearch Twitter post search
     result = desearch.twitter_links_search(
-        prompt="Bittensor",
-        model="NOVA",
+        prompt="Bittensor"
     )
 
     #Desearch Web links search
@@ -58,8 +56,7 @@ Import the package and initialize the Desearch client with your API key:
             "wikipedia",
             "youtube",
             "arxiv"
-        ],
-        model="NOVA",
+        ]
     )
 
     #Basic Twitter search

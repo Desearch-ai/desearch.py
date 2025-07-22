@@ -85,7 +85,7 @@ class Desearch:
         self,
         prompt: str,
         tools: List[ToolEnum],
-        model: ModelEnum,
+        # model: ModelEnum,
         date_filter: DateFilterEnum = None,
         streaming: bool = None,
         result_type: ResultTypeEnum = None,
@@ -105,7 +105,7 @@ class Desearch:
             for k, v in {
                 "prompt": prompt,
                 "tools": tools,
-                "model": model,
+                # "model": model,
                 "date_filter": date_filter,
                 "streaming": streaming,
                 "result_type": result_type,
@@ -126,7 +126,7 @@ class Desearch:
         )
 
     def web_links_search(
-        self, prompt: str, tools: List[WebToolEnum], model: ModelEnum
+        self, prompt: str, tools: List[WebToolEnum]
     ) -> WebLinksSearchResponse:
         """
         Searches for web links with the given payload.
@@ -137,7 +137,7 @@ class Desearch:
         Returns:
             WebLinksSearchResponse: The response from the web links search.
         """
-        payload = {"prompt": prompt, "tools": tools, "model": model}
+        payload = {"prompt": prompt, "tools": tools}
         response = self.handle_request(
             self.client.post,
             f"{self.BASE_URL}/desearch/ai/search/links/web",
@@ -145,9 +145,7 @@ class Desearch:
         )
         return WebLinksSearchResponse(**response)
 
-    def twitter_links_search(
-        self, prompt: str, model: ModelEnum
-    ) -> TwitterLinksSearchResponse:
+    def twitter_links_search(self, prompt: str) -> TwitterLinksSearchResponse:
         """
         Searches for Twitter links with the given payload.
 
@@ -157,7 +155,7 @@ class Desearch:
         Returns:
             TwitterLinksSearchResponse: The response from the Twitter links search.
         """
-        payload = {"prompt": prompt, "model": model}
+        payload = {"prompt": prompt}
         response = self.handle_request(
             self.client.post,
             f"{self.BASE_URL}/desearch/ai/search/links/twitter",
