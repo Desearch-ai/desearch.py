@@ -90,6 +90,7 @@ class Desearch:
         streaming: bool = None,
         result_type: ResultTypeEnum = None,
         system_message: str = None,
+        count: int = 10,
     ) -> Union[AISearchResponse, dict, str]:
         """
         Performs an AI search with the given payload.
@@ -110,6 +111,7 @@ class Desearch:
                 "streaming": streaming,
                 "result_type": result_type,
                 "system_message": system_message,
+                "count": count,
             }.items()
             if v is not None
         }
