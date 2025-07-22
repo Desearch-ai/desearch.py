@@ -44,7 +44,8 @@ Import the package and initialize the Desearch client with your API key:
 
     #Desearch Twitter post search
     result = desearch.twitter_links_search(
-        prompt="Bittensor"
+        prompt="Bittensor", 
+        count=10,
     )
 
     #Desearch Web links search
@@ -57,7 +58,8 @@ Import the package and initialize the Desearch client with your API key:
             "wikipedia",
             "youtube",
             "arxiv"
-        ]
+        ],
+        count=10,
     )
 
     #Basic Twitter search

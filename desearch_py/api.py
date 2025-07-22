@@ -128,7 +128,7 @@ class Desearch:
         )
 
     def web_links_search(
-        self, prompt: str, tools: List[WebToolEnum]
+        self, prompt: str, tools: List[WebToolEnum], count: int = 10
     ) -> WebLinksSearchResponse:
         """
         Searches for web links with the given payload.
@@ -139,7 +139,7 @@ class Desearch:
         Returns:
             WebLinksSearchResponse: The response from the web links search.
         """
-        payload = {"prompt": prompt, "tools": tools}
+        payload = {"prompt": prompt, "tools": tools, "count": count}
         response = self.handle_request(
             self.client.post,
             f"{self.BASE_URL}/desearch/ai/search/links/web",
@@ -147,7 +147,9 @@ class Desearch:
         )
         return WebLinksSearchResponse(**response)
 
-    def twitter_links_search(self, prompt: str) -> TwitterLinksSearchResponse:
+    def twitter_links_search(
+        self, prompt: str, count: int = 10
+    ) -> TwitterLinksSearchResponse:
         """
         Searches for Twitter links with the given payload.
 
@@ -157,7 +159,7 @@ class Desearch:
         Returns:
             TwitterLinksSearchResponse: The response from the Twitter links search.
         """
-        payload = {"prompt": prompt}
+        payload = {"prompt": prompt, "count": count}
         response = self.handle_request(
             self.client.post,
             f"{self.BASE_URL}/desearch/ai/search/links/twitter",
