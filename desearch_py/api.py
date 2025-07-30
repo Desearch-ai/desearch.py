@@ -257,6 +257,21 @@ class Desearch:
         )
         return response
 
+    def web_crawl(self, url: str) -> str:
+        """
+        Performs a web crawl with the given url.
+
+        Args:
+            url: The url of the website to crawl.
+
+        Returns:
+            str: The content of the website.
+        """
+        payload = {"url": url}
+        response = self.client.get(f"{self.BASE_URL}/web/crawl", params=payload)
+        response.raise_for_status()
+        return response.content.decode("utf-8")
+
     def twitter_by_urls(self, urls: List[str]) -> List[TwitterByIdResponse]:
         """
         Performs a Twitter search by URLs with the given payload.
