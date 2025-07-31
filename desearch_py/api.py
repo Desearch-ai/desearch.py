@@ -127,6 +127,48 @@ class Desearch:
             self.client.post, f"{self.BASE_URL}/desearch/ai/search", json=payload
         )
 
+    def deep_research(
+        self,
+        prompt: str,
+        tools: List[ToolEnum],
+        # model: ModelEnum,
+        date_filter: DateFilterEnum = None,
+        streaming: bool = None,
+        system_message: str = None,
+    ) -> str:
+        """
+        Performs an Deep research with the given payload.
+
+        Args:
+            payload (DeepResearchPayload): The payload for the Deep research.
+
+        Returns:
+            str
+        """
+        payload = {
+            k: v
+            for k, v in {
+                "prompt": prompt,
+                "tools": tools,
+                # "model": model,
+                "date_filter": date_filter,
+                "streaming": streaming,
+                "system_message": system_message,
+            }.items()
+            if v is not None
+        }
+
+        if streaming:
+            response = self.client.post(
+                f"{self.BASE_URL}/desearch/deep/search", json=payload, stream=True
+            )
+            response.raise_for_status()
+            return response.iter_content(chunk_size=8192)
+
+        return self.handle_request(
+            self.client.post, f"{self.BASE_URL}/desearch/deep/search", json=payload
+        )
+
     def web_links_search(
         self, prompt: str, tools: List[WebToolEnum], count: int = 10
     ) -> WebLinksSearchResponse:
