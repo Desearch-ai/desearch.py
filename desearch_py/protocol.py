@@ -87,6 +87,40 @@ class AISearchPayload(BaseModel):
         example=True,
     )
 
+class DeepResearchPayload(BaseModel):
+    prompt: str = Field(
+        ...,
+        description="Deep research query prompt",
+        example="Bittensor",
+    )
+    tools: List[ToolEnum] = Field(
+        ...,
+        description="A list of tools to be used for the search",
+        example=[
+            ToolEnum.web.value,
+            ToolEnum.hacker_news.value,
+            ToolEnum.reddit.value,
+            ToolEnum.wikipedia.value,
+            ToolEnum.youtube.value,
+            ToolEnum.twitter.value,
+            ToolEnum.arxiv.value,
+        ],
+    )
+    model: ModelEnum = Field(
+        ...,
+        description="The model to be used for the search",
+        example=ModelEnum.NOVA,
+    )
+
+    date_filter: Optional[DateFilterEnum] = Field(
+        description="The date filter to be used for the search",
+        example=DateFilterEnum.PAST_24_HOURS,
+    )
+    streaming: bool = Field(
+        ...,
+        description="Whether to stream results",
+        example=True,
+    )
 
 class TwitterSearchPayload(BaseModel):
     query: str = Field(

@@ -88,6 +88,11 @@ Import the package and initialize the Desearch client with your API key:
         start=0
     )
 
+    #Web crawl
+    result = desearch.web_crawl(
+        "https://docs.desearch.ai/docs/desearch-api"
+    )
+
     #Fetch Tweets by URLs
     result = desearch.twitter_by_urls(
         urls=["https://twitter.com/elonmusk/status/1613000000000000000"]
