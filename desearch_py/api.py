@@ -1,261 +1,244 @@
-import requests
+from __future__ import annotations
+
 import logging
-from typing import Any, Dict, Union, List
+from typing import Any, AsyncIterator, Dict, List, Optional, Union
 
-from openai import OpenAI
+import aiohttp
 
-from .protocol import (
-    AISearchResponse,
-    WebLinksSearchResponse,
-    TwitterLinksSearchResponse,
-    BasicTwitterSearchResponse,
-    BasicWebSearchResponse,
-    ToolEnum,
-    ModelEnum,
-    DateFilterEnum,
-    TwitterByIdResponse,
-    ResultTypeEnum,
-    WebToolEnum,
-    TwitterUserResponse,
+from .models import (
+    ResponseData,
+    WebSearchResponse,
+    XLinksSearchResponse,
+    TwitterScraperTweet,
+    WebSearchResultsResponse,
+    XRetweetersResponse,
+    XUserPostsResponse,
 )
-from .openai_utils import wrap_openai_client
 
-
-# Configure logging
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+BASE_URL = "https://api.desearch.ai"
 
 
 class Desearch:
-    """
-    SDK for interacting with the Desearch API.
+    """Async Python SDK client for the Desearch API."""
 
-    Attributes:
-        client (requests.Session): The HTTP client used for making requests.
-        base_url (str): The base URL for the API.
-    """
-
-    BASE_URL = "https://api.desearch.ai"
-    AUTH_HEADER = "Authorization"
-
-    def __init__(self, api_key: str):
+    def __init__(self, api_key: str, base_url: str = BASE_URL) -> None:
         """
-        Initializes the DesearchApiSDK with the provided API key.
+        Initialize the Desearch client.
 
         Args:
-            api_key (str): The API key for authenticating requests.
+            api_key (str): Your Desearch API key.
+            base_url (str): Base URL for the API. Defaults to the production endpoint.
         """
-        self.client = requests.Session()
-        self.client.headers.update({self.AUTH_HEADER: api_key})
+        self.api_key = api_key
+        self.base_url = base_url.rstrip("/")
+        self.client: Optional[aiohttp.ClientSession] = None
 
-    def __enter__(self):
+    async def _ensure_session(self) -> aiohttp.ClientSession:
+        if self.client is None or self.client.closed:
+            self.client = aiohttp.ClientSession(
+                headers={"Authorization": self.api_key}
+            )
+        return self.client
+
+    async def __aenter__(self) -> Desearch:
+        await self._ensure_session()
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        self.client.close()
+    async def __aexit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
+        await self.close()
 
-    def handle_request(self, request_func, *args, **kwargs) -> Dict[str, Any]:
+    async def close(self) -> None:
+        """Close the underlying HTTP session."""
+        if self.client and not self.client.closed:
+            await self.client.close()
+
+    async def _handle_request(self, method: str, url: str, **kwargs: Any) -> Any:
         """
-        Handles HTTP requests and processes responses.
+        Send an HTTP request and return the parsed JSON response.
 
         Args:
-            request_func (callable): The HTTP request function (e.g., self.client.post).
-            *args: Positional arguments for the request function.
-            **kwargs: Keyword arguments for the request function.
+            method (str): HTTP method (GET, POST, etc.).
+            url (str): Full request URL.
+            **kwargs: Additional arguments passed to the request.
 
         Returns:
-            Dict[str, Any]: The JSON response from the server.
+            Any: Parsed JSON response.
 
         Raises:
-            requests.exceptions.HTTPError: If an HTTP error occurs.
-            requests.exceptions.RequestException: If a network error occurs.
+            aiohttp.ClientResponseError: On HTTP error responses.
+            aiohttp.ClientError: On connection-level errors.
         """
+        client = await self._ensure_session()
         try:
-            response = request_func(*args, timeout=120, **kwargs)
-            response.raise_for_status()
-            return response.json()
-        except requests.exceptions.HTTPError as http_err:
-            logger.error(f"HTTP Error [{response.status_code}]: {response.text}")
+            async with client.request(
+                method, url, timeout=aiohttp.ClientTimeout(total=120), **kwargs
+            ) as response:
+                response.raise_for_status()
+                return await response.json()
+        except aiohttp.ClientResponseError as e:
+            logger.error("HTTP error %s for %s %s: %s", e.status, method, url, e.message)
             raise
-        except requests.exceptions.RequestException as err:
-            logger.error(f"Network Error: {err}")
+        except aiohttp.ClientError as e:
+            logger.error("Client error for %s %s: %s", method, url, str(e))
             raise
 
-    def ai_search(
+    async def ai_search(
         self,
         prompt: str,
-        tools: List[ToolEnum],
-        # model: ModelEnum,
-        date_filter: DateFilterEnum = None,
-        streaming: bool = None,
-        result_type: ResultTypeEnum = None,
-        system_message: str = None,
-        count: int = 10,
-    ) -> Union[AISearchResponse, dict, str]:
+        tools: List[str],
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        date_filter: Optional[str] = "PAST_24_HOURS",
+        result_type: Optional[str] = "LINKS_WITH_FINAL_SUMMARY",
+        system_message: Optional[str] = None,
+        scoring_system_message: Optional[str] = None,
+        count: Optional[int] = None,
+    ) -> Union[ResponseData, Dict[str, Any]]:
         """
-        Performs an AI search with the given payload.
+        AI-powered multi-source contextual search.
 
         Args:
-            payload (AISearchPayload): The payload for the AI search.
+            prompt (str): Search query prompt.
+            tools (List[str]): List of tools to search with (e.g. web, twitter, reddit).
+            start_date (Optional[str]): Start date in UTC (YYYY-MM-DDTHH:MM:SSZ).
+            end_date (Optional[str]): End date in UTC (YYYY-MM-DDTHH:MM:SSZ).
+            date_filter (Optional[str]): Predefined date filter for search results.
+            result_type (Optional[str]): Result type (ONLY_LINKS or LINKS_WITH_FINAL_SUMMARY).
+            system_message (Optional[str]): System message for the search.
+            scoring_system_message (Optional[str]): System message for scoring the response.
+            count (Optional[int]): Number of results to return per source (10-200).
 
         Returns:
-            Union[AISearchResponse, dict, str]
+            Union[ResponseData, Dict[str, Any]]: Search results.
         """
+        url = f"{self.base_url}/desearch/ai/search"
         payload = {
             k: v
             for k, v in {
                 "prompt": prompt,
                 "tools": tools,
-                # "model": model,
+                "start_date": start_date,
+                "end_date": end_date,
                 "date_filter": date_filter,
-                "streaming": streaming,
+                "streaming": False,
                 "result_type": result_type,
                 "system_message": system_message,
+                "scoring_system_message": scoring_system_message,
                 "count": count,
             }.items()
             if v is not None
         }
 
-        if streaming:
-            response = self.client.post(
-                f"{self.BASE_URL}/desearch/ai/search", json=payload, stream=True
-            )
-            response.raise_for_status()
-            return response.iter_content(chunk_size=8192)
+        data = await self._handle_request("POST", url, json=payload)
+        if isinstance(data, dict):
+            try:
+                return ResponseData(**data)
+            except Exception:
+                return data
+        return data
 
-        return self.handle_request(
-            self.client.post, f"{self.BASE_URL}/desearch/ai/search", json=payload
-        )
-
-    def deep_research(
+    async def ai_web_links_search(
         self,
         prompt: str,
-        tools: List[ToolEnum],
-        # model: ModelEnum,
-        date_filter: DateFilterEnum = None,
-        streaming: bool = None,
-        system_message: str = None,
-    ) -> str:
+        tools: List[str],
+        count: Optional[int] = None,
+    ) -> WebSearchResponse:
         """
-        Performs an Deep research with the given payload.
+        Search for raw links across web sources using AI.
 
         Args:
-            payload (DeepResearchPayload): The payload for the Deep research.
+            prompt (str): Search query prompt.
+            tools (List[str]): List of web tools to search with.
+            count (Optional[int]): Number of results to return per source (10-200).
 
         Returns:
-            str
+            WebSearchResponse: Structured link results from selected platforms.
         """
+        url = f"{self.base_url}/desearch/ai/search/links/web"
         payload = {
             k: v
             for k, v in {
                 "prompt": prompt,
                 "tools": tools,
-                # "model": model,
-                "date_filter": date_filter,
-                "streaming": streaming,
-                "system_message": system_message,
+                "count": count,
             }.items()
             if v is not None
         }
+        data = await self._handle_request("POST", url, json=payload)
+        return WebSearchResponse(**data)
 
-        if streaming:
-            response = self.client.post(
-                f"{self.BASE_URL}/desearch/deep/search", json=payload, stream=True
-            )
-            response.raise_for_status()
-            return response.iter_content(chunk_size=8192)
-
-        return self.handle_request(
-            self.client.post, f"{self.BASE_URL}/desearch/deep/search", json=payload
-        )
-
-    def web_links_search(
-        self, prompt: str, tools: List[WebToolEnum], count: int = 10
-    ) -> WebLinksSearchResponse:
+    async def ai_x_links_search(
+        self,
+        prompt: str,
+        count: Optional[int] = None,
+    ) -> XLinksSearchResponse:
         """
-        Searches for web links with the given payload.
+        Search for X (Twitter) post links matching a prompt using AI.
 
         Args:
-            payload (WebLinksPayload): The payload for the web links search.
+            prompt (str): Search query prompt.
+            count (Optional[int]): Number of results to return (10-200).
 
         Returns:
-            WebLinksSearchResponse: The response from the web links search.
+            XLinksSearchResponse: Tweet objects matching the search.
         """
-        payload = {"prompt": prompt, "tools": tools, "count": count}
-        response = self.handle_request(
-            self.client.post,
-            f"{self.BASE_URL}/desearch/ai/search/links/web",
-            json=payload,
-        )
-        return WebLinksSearchResponse(**response)
+        url = f"{self.base_url}/desearch/ai/search/links/twitter"
+        payload = {
+            k: v
+            for k, v in {
+                "prompt": prompt,
+                "count": count,
+            }.items()
+            if v is not None
+        }
+        data = await self._handle_request("POST", url, json=payload)
+        return XLinksSearchResponse(**data)
 
-    def twitter_links_search(
-        self, prompt: str, count: int = 10
-    ) -> TwitterLinksSearchResponse:
-        """
-        Searches for Twitter links with the given payload.
-
-        Args:
-            payload (TwitterLinksPayload): The payload for the Twitter links search.
-
-        Returns:
-            TwitterLinksSearchResponse: The response from the Twitter links search.
-        """
-        payload = {"prompt": prompt, "count": count}
-        response = self.handle_request(
-            self.client.post,
-            f"{self.BASE_URL}/desearch/ai/search/links/twitter",
-            json=payload,
-        )
-        return response
-
-    def basic_twitter_search(
+    async def x_search(
         self,
         query: str,
-        sort: str = None,
-        user: str = None,
-        start_date: str = None,
-        end_date: str = None,
-        lang: str = None,
-        verified: bool = None,
-        blue_verified: bool = None,
-        is_quote: bool = None,
-        is_video: bool = None,
-        is_image: bool = None,
-        min_retweets: int = None,
-        min_replies: int = None,
-        min_likes: int = None,
-        count: int = 10,
-    ) -> BasicTwitterSearchResponse:
+        sort: Optional[str] = "Top",
+        user: Optional[str] = None,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        lang: Optional[str] = None,
+        verified: Optional[bool] = None,
+        blue_verified: Optional[bool] = None,
+        is_quote: Optional[bool] = None,
+        is_video: Optional[bool] = None,
+        is_image: Optional[bool] = None,
+        min_retweets: Optional[Union[int, str]] = None,
+        min_replies: Optional[Union[int, str]] = None,
+        min_likes: Optional[Union[int, str]] = None,
+        count: Optional[int] = 20,
+    ) -> Union[List[TwitterScraperTweet], Dict[str, Any]]:
         """
-        Performs a basic Twitter search with the given payload.
+        Search X (Twitter) with extensive filtering options.
 
         Args:
-            payload (TwitterSearchPayload): The payload for the Twitter search.
+            query (str): Advanced search query.
+            sort (Optional[str]): Sort by 'Top' or 'Latest'.
+            user (Optional[str]): User to search for.
+            start_date (Optional[str]): Start date in UTC (YYYY-MM-DD).
+            end_date (Optional[str]): End date in UTC (YYYY-MM-DD).
+            lang (Optional[str]): Language code (e.g. en, es, fr).
+            verified (Optional[bool]): Filter for verified users.
+            blue_verified (Optional[bool]): Filter for blue checkmark verified users.
+            is_quote (Optional[bool]): Include only tweets with quotes.
+            is_video (Optional[bool]): Include only tweets with videos.
+            is_image (Optional[bool]): Include only tweets with images.
+            min_retweets (Optional[Union[int, str]]): Minimum number of retweets.
+            min_replies (Optional[Union[int, str]]): Minimum number of replies.
+            min_likes (Optional[Union[int, str]]): Minimum number of likes.
+            count (Optional[int]): Number of tweets to retrieve (1-100).
 
         Returns:
-            BasicTwitterSearchResponse: The response from the Twitter search.
-
-        Example:
-            {
-                "query": "Whats going on with Bittensor",
-                "sort": "Top",
-                "user": "elonmusk",
-                "start_date": "2024-12-01",
-                "end_date": "2025-02-25",
-                "lang": "en",
-                "verified": true,
-                "blue_verified": true,
-                "is_quote": true,
-                "is_video": true,
-                "is_image": true,
-                "min_retweets": 1,
-                "min_replies": 1,
-                "min_likes": 1,
-                "count": 10
-            }
+            Union[List[TwitterScraperTweet], Dict[str, Any]]: List of tweets or raw dict.
         """
-        payload = {
+        url = f"{self.base_url}/twitter"
+        params = {
             k: v
             for k, v in {
                 "query": query,
@@ -276,202 +259,270 @@ class Desearch:
             }.items()
             if v is not None
         }
-        response = self.handle_request(
-            self.client.get, f"{self.BASE_URL}/twitter", params=payload
-        )
-        return response
+        data = await self._handle_request("GET", url, params=params)
+        if isinstance(data, list):
+            return [TwitterScraperTweet(**item) for item in data]
+        return data
 
-    def basic_web_search(
-        self, query: str, num: int, start: int
-    ) -> BasicWebSearchResponse:
+    async def x_posts_by_urls(
+        self,
+        urls: List[str],
+    ) -> List[TwitterScraperTweet]:
         """
-        Performs a basic web search with the given payload.
+        Fetch full post data for a list of X (Twitter) post URLs.
 
         Args:
-            payload (WebSearchPayload): The payload for the web search.
+            urls (List[str]): List of tweet URLs to retrieve.
 
         Returns:
-            BasicWebSearchResponse: The response from the web search.
+            List[TwitterScraperTweet]: List of tweet details.
         """
-        payload = {"query": query, "num": num, "start": start}
-        response = self.handle_request(
-            self.client.get, f"{self.BASE_URL}/web", params=payload
-        )
-        return response
+        url = f"{self.base_url}/twitter/urls"
+        params: List[tuple] = [("urls", u) for u in urls]
+        client = await self._ensure_session()
+        try:
+            async with client.request(
+                "GET", url, params=params, timeout=aiohttp.ClientTimeout(total=120)
+            ) as response:
+                response.raise_for_status()
+                data = await response.json()
+        except aiohttp.ClientResponseError as e:
+            logger.error("HTTP error %s for GET %s: %s", e.status, url, e.message)
+            raise
+        except aiohttp.ClientError as e:
+            logger.error("Client error for GET %s: %s", url, str(e))
+            raise
+        return [TwitterScraperTweet(**item) for item in data]
 
-    def web_crawl(self, url: str) -> str:
+    async def x_post_by_id(
+        self,
+        id: str,
+    ) -> TwitterScraperTweet:
         """
-        Performs a web crawl with the given url.
+        Fetch a single X (Twitter) post by its unique ID.
 
         Args:
-            url: The url of the website to crawl.
+            id (str): The unique ID of the post.
 
         Returns:
-            str: The content of the website.
+            TwitterScraperTweet: The post details.
         """
-        payload = {"url": url}
-        response = self.client.get(f"{self.BASE_URL}/web/crawl", params=payload)
-        response.raise_for_status()
-        return response.content.decode("utf-8")
+        url = f"{self.base_url}/twitter/post"
+        params = {"id": id}
+        data = await self._handle_request("GET", url, params=params)
+        return TwitterScraperTweet(**data)
 
-    def twitter_by_urls(self, urls: List[str]) -> List[TwitterByIdResponse]:
+    async def x_posts_by_user(
+        self,
+        user: str,
+        query: Optional[str] = None,
+        count: Optional[int] = None,
+    ) -> Union[List[TwitterScraperTweet], Dict[str, Any]]:
         """
-        Performs a Twitter search by URLs with the given payload.
+        Search X (Twitter) posts by a specific user with optional keyword filtering.
 
         Args:
-            payload (TwitterByUrlsPayload): The payload for the Twitter search by URLs.
+            user (str): User to search for.
+            query (Optional[str]): Advanced search query.
+            count (Optional[int]): Number of tweets to retrieve (1-100).
 
         Returns:
-            TwitterByUrlsResponse: The response from the Twitter search by URLs.
+            Union[List[TwitterScraperTweet], Dict[str, Any]]: List of tweets or raw dict.
         """
-        payload = {"urls": urls}
-        response = self.handle_request(
-            self.client.get, f"{self.BASE_URL}/twitter/urls", params=payload
-        )
+        url = f"{self.base_url}/twitter/post/user"
+        params = {
+            k: v
+            for k, v in {
+                "user": user,
+                "query": query,
+                "count": count,
+            }.items()
+            if v is not None
+        }
+        data = await self._handle_request("GET", url, params=params)
+        if isinstance(data, list):
+            return [TwitterScraperTweet(**item) for item in data]
+        return data
 
-        return response
-
-    def twitter_by_id(self, id: str) -> TwitterByIdResponse:
+    async def x_post_retweeters(
+        self,
+        id: str,
+        cursor: Optional[str] = None,
+    ) -> XRetweetersResponse:
         """
-        Performs a Twitter search by IDs with the given payload.
+        Retrieve the list of users who retweeted a specific post.
 
         Args:
-            payload (TwitterByIdPayload): The payload for the Twitter search by ID.
+            id (str): The ID of the post to get retweeters for.
+            cursor (Optional[str]): Cursor for pagination.
 
         Returns:
-            TwitterByIdResponse: The response from the Twitter search by ID.
+            XRetweetersResponse: List of retweeter users with pagination cursor.
         """
-        response = self.handle_request(
-            self.client.get,
-            f"{self.BASE_URL}/twitter/post",
-            params={"id": id},
-        )
+        url = f"{self.base_url}/twitter/post/retweeters"
+        params = {
+            k: v
+            for k, v in {
+                "id": id,
+                "cursor": cursor,
+            }.items()
+            if v is not None
+        }
+        data = await self._handle_request("GET", url, params=params)
+        return XRetweetersResponse(**data)
 
-        return TwitterByIdResponse(**response)
-
-    def tweets_by_user(
-        self, user: str, query: int = None, count: int = 10
-    ) -> BasicTwitterSearchResponse:
+    async def x_user_posts(
+        self,
+        username: str,
+        cursor: Optional[str] = None,
+    ) -> XUserPostsResponse:
         """
-        Performs a twitter search with the given arguments.
+        Retrieve a user's timeline posts by their username.
 
         Args:
-            user (str): The user to search for.
-            query (str): The query to search for.
-            count (int): The number of tweets to return.
+            username (str): Username to fetch posts for.
+            cursor (Optional[str]): Cursor for pagination.
 
         Returns:
-            BasicTwitterSearchResponse: The response from the web search.
+            XUserPostsResponse: User info, tweets, and pagination cursor.
         """
-        payload = {"user": user, "query": query, "count": count}
-        response = self.handle_request(
-            self.client.get, f"{self.BASE_URL}/twitter/post/user", params=payload
-        )
-        return response
+        url = f"{self.base_url}/twitter/user/posts"
+        params = {
+            k: v
+            for k, v in {
+                "username": username,
+                "cursor": cursor,
+            }.items()
+            if v is not None
+        }
+        data = await self._handle_request("GET", url, params=params)
+        return XUserPostsResponse(**data)
 
-    def latest_tweets(self, user: str, count: int = 10) -> BasicTwitterSearchResponse:
+    async def x_user_replies(
+        self,
+        user: str,
+        count: Optional[int] = None,
+        query: Optional[str] = None,
+    ) -> Union[List[TwitterScraperTweet], Dict[str, Any]]:
         """
-        Performs a latest tweets search with the given arguments.
+        Fetch tweets and replies posted by a specific user.
 
         Args:
-            user (str): The user to search for.
-            count (int): The number of tweets to return.
+            user (str): The username of the user to search for.
+            count (Optional[int]): The number of tweets to fetch (1-100).
+            query (Optional[str]): Advanced search query.
 
         Returns:
-            BasicTwitterSearchResponse: The response from the web search.
+            Union[List[TwitterScraperTweet], Dict[str, Any]]: List of tweets or raw dict.
         """
-        payload = {"user": user, "count": count}
-        response = self.handle_request(
-            self.client.get, f"{self.BASE_URL}/twitter/latest", params=payload
-        )
-        return response
+        url = f"{self.base_url}/twitter/replies"
+        params = {
+            k: v
+            for k, v in {
+                "user": user,
+                "count": count,
+                "query": query,
+            }.items()
+            if v is not None
+        }
+        data = await self._handle_request("GET", url, params=params)
+        if isinstance(data, list):
+            return [TwitterScraperTweet(**item) for item in data]
+        return data
 
-    def tweets_and_replies_by_user(
-        self, user: str, query: int = None, count: int = 10
-    ) -> BasicTwitterSearchResponse:
+    async def x_post_replies(
+        self,
+        post_id: str,
+        count: Optional[int] = None,
+        query: Optional[str] = None,
+    ) -> Union[List[TwitterScraperTweet], Dict[str, Any]]:
         """
-        Performs a tweets and replies search with the given arguments.
+        Fetch replies to a specific X (Twitter) post by its post ID.
 
         Args:
-            user (str): The user to search for.
-            query (str): The query to search for.
-            count (int): The number of tweets to return.
+            post_id (str): The ID of the post to search for.
+            count (Optional[int]): The number of tweets to fetch (1-100).
+            query (Optional[str]): Advanced search query.
 
         Returns:
-            BasicTwitterSearchResponse: The response from the web search.
+            Union[List[TwitterScraperTweet], Dict[str, Any]]: List of tweets or raw dict.
         """
-        payload = {"user": user, "query": query, "count": count}
-        response = self.handle_request(
-            self.client.get, f"{self.BASE_URL}/twitter/replies", params=payload
-        )
-        return response
+        url = f"{self.base_url}/twitter/replies/post"
+        params = {
+            k: v
+            for k, v in {
+                "post_id": post_id,
+                "count": count,
+                "query": query,
+            }.items()
+            if v is not None
+        }
+        data = await self._handle_request("GET", url, params=params)
+        if isinstance(data, list):
+            return [TwitterScraperTweet(**item) for item in data]
+        return data
 
-    def twitter_replies_post(
-        self, post_id: str, count: int = 10, query: str = ""
-    ) -> BasicTwitterSearchResponse:
+    async def web_search(
+        self,
+        query: str,
+        start: Optional[int] = 0,
+    ) -> WebSearchResultsResponse:
         """
-        Performs a tweets and replies search with the given arguments.
+        SERP web search returning paginated web search results.
 
         Args:
-            post_id (str): The post id to search for.
-            count (int): The number of tweets to return.
-            query (str): The query to search for.
+            query (str): The search query string.
+            start (Optional[int]): Number of results to skip for pagination.
 
         Returns:
-            BasicTwitterSearchResponse: The response from the web search.
+            WebSearchResultsResponse: Paginated web search results.
         """
-        payload = {"post_id": post_id, "count": count, "query": query}
-        response = self.handle_request(
-            self.client.get, f"{self.BASE_URL}/twitter/replies/post", params=payload
-        )
-        return response
+        url = f"{self.base_url}/web"
+        params = {
+            k: v
+            for k, v in {
+                "query": query,
+                "start": start,
+            }.items()
+            if v is not None
+        }
+        data = await self._handle_request("GET", url, params=params)
+        return WebSearchResultsResponse(**data)
 
-    def twitter_retweets_post(
-        self, post_id: str, count: int = 10, query: str = ""
-    ) -> BasicTwitterSearchResponse:
+    async def web_crawl(
+        self,
+        url: str,
+        format: Optional[str] = "text",
+    ) -> str:
         """
-        Performs a tweets and replies search with the given arguments.
+        Crawl a URL and return its content as plain text or HTML.
 
         Args:
-            post_id (str): The post id to search for.
-            count (int): The number of tweets to return.
-            query (str): The query to search for.
+            url (str): URL to crawl.
+            format (Optional[str]): Format of content ('html' or 'text'). Defaults to 'text'.
 
         Returns:
-            BasicTwitterSearchResponse: The response from the web search.
+            str: The crawled content.
         """
-        payload = {"post_id": post_id, "count": count, "query": query}
-        response = self.handle_request(
-            self.client.get, f"{self.BASE_URL}/twitter/retweets/post", params=payload
-        )
-        return response
-
-    def tweeter_user(self, user: str) -> TwitterUserResponse:
-        """
-        Performs a tweets and replies search with the given arguments.
-
-        Args:
-            user (str): The user to search for.
-
-        Returns:
-            TwitterUserResponse: The response from the web search.
-        """
-        payload = {"user": user}
-        response = self.handle_request(
-            self.client.get, f"{self.BASE_URL}/twitter/user", params=payload
-        )
-        return response
-
-    def wrap(self, client: OpenAI):
-        """
-        Wrap an OpenAI client with Desearch functionality.
-
-        This method delegates to the wrap_openai_client function in openai_utils.
-
-        Args:
-            client: The OpenAI client to wrap
-
-        Returns:
-            The wrapped OpenAI client with Desearch functionality
-        """
-        return wrap_openai_client(self, client)
+        request_url = f"{self.base_url}/web/crawl"
+        params = {
+            k: v
+            for k, v in {
+                "url": url,
+                "format": format,
+            }.items()
+            if v is not None
+        }
+        client = await self._ensure_session()
+        try:
+            async with client.request(
+                "GET", request_url, params=params, timeout=aiohttp.ClientTimeout(total=120)
+            ) as response:
+                response.raise_for_status()
+                return await response.text()
+        except aiohttp.ClientResponseError as e:
+            logger.error("HTTP error %s for GET %s: %s", e.status, request_url, e.message)
+            raise
+        except aiohttp.ClientError as e:
+            logger.error("Client error for GET %s: %s", request_url, str(e))
+            raise

@@ -3,14 +3,12 @@ authors = ["Desearch AI <hello@desearch.ai>"]
 description = "Python SDK for Desearch API."
 name = "desearch-py"
 readme = "README.md"
-version = "1.0.5"
+version = "1.1.0"
 
 [tool.poetry.dependencies]
-openai = "^1.79.0"
-pydantic = "^1.10.2"
+aiohttp = ">=3.8"
+pydantic = ">=2.0"
 python = "^3.9"
-requests = "^2.32.3"
-typing-extensions = "^4.12.2"
 
 [tool.poetry.group.dev.dependencies]
 docutils = "^0.21.2"
@@ -19,9 +17,6 @@ setuptools = "^74.0.0"
 sphinx = "^7.0.0"
 twine = "^5.1.1"
 
-[tool.poetry.scripts]
-build-docs = "sphinx:main"
-desearch-api = "desearch_py.api:main"
 
 [build-system]
 build-backend = "poetry.core.masonry.api"
