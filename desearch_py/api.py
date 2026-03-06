@@ -39,7 +39,10 @@ class Desearch:
     async def _ensure_session(self) -> aiohttp.ClientSession:
         if self.client is None or self.client.closed:
             self.client = aiohttp.ClientSession(
-                headers={"Authorization": self.api_key}
+                headers={
+                    "Authorization": self.api_key,
+                    "Accept-Encoding": "gzip, deflate",
+                }
             )
         return self.client
 
