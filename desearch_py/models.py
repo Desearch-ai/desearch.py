@@ -5,7 +5,6 @@ from typing import Any, Dict, List, Optional, Union
 
 from pydantic import BaseModel, ConfigDict
 
-
 # ─── Enums ────────────────────────────────────────────────────────────────────
 
 
@@ -164,7 +163,9 @@ class TwitterScraperEntitiesMedia(BaseModel):
     features: Optional[TwitterScraperEntitiesMediaFeatures] = None
     sizes: Optional[TwitterScraperEntitiesMediaSizes] = None
     original_info: Optional[TwitterScraperEntitiesMediaOriginalInfo] = None
-    allow_download_status: Optional[TwitterScraperEntitiesMediaAllowDownloadStatus] = None
+    allow_download_status: Optional[TwitterScraperEntitiesMediaAllowDownloadStatus] = (
+        None
+    )
     video_info: Optional[TwitterScraperEntitiesMediaVideoInfo] = None
     media_results: Optional[TwitterScraperEntitiesMediaResults] = None
 
@@ -375,6 +376,31 @@ class XUserPostsResponse(BaseModel):
     user: TwitterScraperUser
     tweets: List[TwitterScraperTweet]
     next_cursor: Optional[str] = None
+
+
+# ─── X Trends Models ─────────────────────────────────────────────────────────
+
+
+class XTrendItem(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    name: str
+    query: Optional[str] = None
+    rank: Optional[int] = None
+
+
+class XTrendsWoeid(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    name: str
+    id: int
+
+
+class XTrendsResponse(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    trends: List[XTrendItem]
+    woeid: Optional[XTrendsWoeid] = None
 
 
 # ─── Error Response Models ────────────────────────────────────────────────────

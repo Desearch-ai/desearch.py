@@ -43,6 +43,9 @@ from .models import (
     WebTool,
     XLinksSearchResponse,
     XRetweetersResponse,
+    XTrendItem,
+    XTrendsResponse,
+    XTrendsWoeid,
     XUserPostsResponse,
 )
 
@@ -91,5 +94,8 @@ __all__ = [
     "WebTool",
     "XLinksSearchResponse",
     "XRetweetersResponse",
+    "XTrendItem",
+    "XTrendsResponse",
+    "XTrendsWoeid",
     "XUserPostsResponse",
 ]

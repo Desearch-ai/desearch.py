@@ -17,6 +17,7 @@ The official Python SDK for the Desearch API — AI-powered search, X (Twitter) 
 - [Get X Posts by Username](#get-x-posts-by-username)
 - [Fetch User's Tweets and Replies](#fetch-users-tweets-and-replies)
 - [Retrieve Replies for a Post](#retrieve-replies-for-a-post)
+- [Get X Trends](#get-x-trends)
 - [SERP Web Search](#serp-web-search)
 - [Crawl a URL](#crawl-a-url)
 - [Links](#links)
@@ -271,6 +272,24 @@ result = await desearch.x_post_replies(
     post_id="1234567890",
     query="latest news on AI",
     count=20,
+)
+```
+
+## Get X Trends
+
+`x_trends`
+
+Retrieve trending topics on X for a given location using its WOEID (Where On Earth ID).
+
+| Parameter | Type            | Required | Default | Description                                                 |
+| --------- | --------------- | -------- | ------- | ----------------------------------------------------------- |
+| `woeid`   | `int`           | Yes      | —       | The WOEID of the location (e.g. 23424977 for United States) |
+| `count`   | `Optional[int]` | No       | `None`  | The number of trends to return (30–100)                     |
+
+```python
+result = await desearch.x_trends(
+    woeid=23424977,
+    count=50,
 )
 ```
 

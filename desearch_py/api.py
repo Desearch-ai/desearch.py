@@ -13,6 +13,7 @@ from .models import (
     WebSearchResultsResponse,
     XRetweetersResponse,
     XUserPostsResponse,
+    XTrendsResponse,
 )
 
 logger = logging.getLogger(__name__)
@@ -461,6 +462,33 @@ class Desearch:
         if isinstance(data, list):
             return [TwitterScraperTweet(**item) for item in data]
         return data
+
+    async def x_trends(
+        self,
+        woeid: int,
+        count: Optional[int] = None,
+    ) -> XTrendsResponse:
+        """
+        Retrieve trending topics on X for a given location using its WOEID.
+
+        Args:
+            woeid (int): The WOEID of the location (e.g. 23424977 for United States).
+            count (Optional[int]): The number of trends to return (30-100).
+
+        Returns:
+            XTrendsResponse: List of trending topics and location info.
+        """
+        url = f"{self.base_url}/twitter/trends"
+        params = {
+            k: v
+            for k, v in {
+                "woeid": woeid,
+                "count": count,
+            }.items()
+            if v is not None
+        }
+        data = await self._handle_request("GET", url, params=params)
+        return XTrendsResponse(**data)
 
     async def web_search(
         self,
