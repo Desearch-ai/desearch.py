@@ -18,7 +18,7 @@ pip install desearch-py
 
 These dependencies are declared in `pyproject.toml` and installed automatically with the package.
 
-## Quick start
+## Quick Start
 
 ```python
 import asyncio
@@ -38,6 +38,32 @@ async def main() -> None:
 
 asyncio.run(main())
 ```
+
+## Commands
+
+| Task | Command |
+|---|---|
+| Install package | `pip install desearch-py` |
+| Install repo in editable mode | `pip install -e .` |
+| Install with Poetry | `poetry install` |
+| Build package | `poetry build` |
+| Publish package | `./publish.sh` |
+
+## Architecture overview
+
+The SDK is organized around two source files:
+
+- `desearch_py/api.py`: the async `Desearch` client, session lifecycle, and HTTP request methods.
+- `desearch_py/models.py`: pydantic models and enums used for typed API responses.
+
+Key design points:
+
+- Uses a lazily created `aiohttp.ClientSession`
+- Sends the API key in the `Authorization` header
+- Applies a 120 second request timeout
+- Returns pydantic models for most endpoints
+- Returns raw text for `web_crawl`
+- Falls back to raw `dict` responses for some endpoints when model parsing fails
 
 ## Client overview
 
