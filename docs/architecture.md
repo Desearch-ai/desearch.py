@@ -147,7 +147,7 @@ from desearch_py import Desearch, Tool, DateFilter
 | Auth method | `Authorization: <api_key>` (raw token, no `Bearer` prefix) |
 | Timeout | 120 s global, no per-method override |
 | Compression | `Accept-Encoding: gzip, deflate` |
-| Response format | JSON |
+| Response format | JSON (all methods except `web_crawl`, which returns raw text/HTML via `response.text()`) |
 | Retry logic | None built in |
 | Rate-limit handling | None built in |
 

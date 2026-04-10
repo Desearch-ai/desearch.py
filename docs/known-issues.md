@@ -128,11 +128,11 @@ There is no built-in iterator or helper to auto-fetch subsequent pages.
 
 ---
 
-### Sphinx docs in `docs/` are unmaintained
+### `docs/` directory contains Sphinx scaffolding, not the active docs
 
-The repository ships a `docs/` directory with Sphinx configuration and `index.rst`, but it appears to be a separate documentation system that is not published or kept in sync with the SDK.
+The repository ships a `docs/` directory with Sphinx configuration (`conf.py`, `index.rst`, `Makefile`) sourced from the repository itself. These files exist alongside `features.md`, `architecture.md`, and `known-issues.md` in the same directory.
 
-**Impact**: the canonical docs for this SDK are the files in this `docs/` directory (`features.md`, `architecture.md`, `known-issues.md`) and the public docs at <https://desearch.ai>.
+**Impact**: the prose docs (`features.md`, `architecture.md`, `known-issues.md`) are the maintained reference. The Sphinx build files (`conf.py`, `index.rst`, `Makefile`) are scaffolding and have not been built into a published site.
 
 ---
 
@@ -149,4 +149,4 @@ The repository ships a `docs/` directory with Sphinx configuration and `index.rs
 | `x_posts_by_urls` param encoding | Low | Test multi-URL batches |
 | `web_crawl` returns raw string | Low | Parse HTML with `BeautifulSoup` etc. |
 | No pagination helpers | Low | Manage cursors manually |
-| Sphinx docs unmaintained | Info | Use `docs/*.md` files instead |
+| Sphinx scaffolding not published | Info | Use `docs/*.md` files as reference |
