@@ -1,161 +1,159 @@
 # Architecture — desearch-py SDK
 
-> Internal design notes for contributors. Based on source at `desearch_py/api.py` and `desearch_py/models.py`.
-
----
+This document explains how the SDK is structured today, based on the checked-in source rather than intended future behavior.
 
 ## Overview
 
-The SDK is a thin async HTTP wrapper. It does not ship its own retry logic, rate-limit handling, or streaming infrastructure. The two main building blocks are:
+`desearch-py` is a thin async wrapper over the Desearch HTTP API. The codebase is intentionally small and split across three public-facing package files:
 
-1. **`Desearch` (api.py)** — async client managing an `aiohttp.ClientSession`.
-2. **`models.py`** — pydantic `BaseModel` subclasses for all known API response shapes.
+- `desearch_py/api.py` contains the async client and every endpoint method.
+- `desearch_py/models.py` contains enums plus permissive `pydantic` response models.
+- `desearch_py/__init__.py` re-exports the supported public API.
 
----
+Supporting repo files matter too:
 
-## Async client (`Desearch`)
+- `pyproject.toml` contains Poetry metadata and dev dependencies.
+- `setup.py` keeps setuptools packaging metadata in sync.
+- `docs/` contains Markdown notes plus an older Sphinx scaffold.
 
-### Initialization
+## Package structure
 
-```python
-client = Desearch(api_key="...", base_url="https://api.desearch.ai")
+```text
+.
+├── desearch_py/
+│   ├── __init__.py
+│   ├── api.py
+│   ├── models.py
+│   └── py.typed
+├── docs/
+│   ├── architecture.md
+│   ├── features.md
+│   ├── known-issues.md
+│   ├── conf.py
+│   └── index.rst
+├── pyproject.toml
+└── setup.py
 ```
 
-- `api_key` is stored on the instance and sent as the `Authorization` header on every request.
-- `base_url` defaults to `https://api.desearch.ai` and is stripped of any trailing slash.
-- No HTTP session is opened until the first request (`lazy` initialization).
+## Core design
 
-### Session management
+### 1. One client object owns all HTTP access
 
-```python
-async def _ensure_session(self) -> aiohttp.ClientSession:
-    if self.client is None or self.client.closed:
-        self.client = aiohttp.ClientSession(
-            headers={
-                "Authorization": self.api_key,
-                "Accept-Encoding": "gzip, deflate",
-            }
-        )
-    return self.client
-```
+The SDK exposes a single client class, `Desearch`. Every networked feature hangs off that one object instead of being split into sub-clients.
 
-- Sessions are opened lazily on first use and closed via `await client.close()`.
-- The `async with` context manager (`__aenter__` / `__aexit__`) handles open/close automatically.
-- Compression is enabled via `Accept-Encoding: gzip, deflate`.
+Why this matters:
 
-### Request dispatch (`_handle_request`)
+- auth is configured once at initialization time
+- one `aiohttp.ClientSession` can be reused across calls
+- the public API stays very small for consumers
 
-All methods funnel through a shared helper:
+### 2. Session creation is lazy
 
-```python
-async def _handle_request(self, method: str, url: str, **kwargs) -> Any:
-    client = await self._ensure_session()
-    async with client.request(
-        method, url, timeout=aiohttp.ClientTimeout(total=120), **kwargs
-    ) as response:
-        response.raise_for_status()
-        return await response.json()
-```
+`__init__` stores configuration only. The actual `aiohttp.ClientSession` is created inside `_ensure_session()` when the first request is sent.
 
-- **Timeout**: 120 s hardcoded. No per-method override.
-- **Errors**: raises `aiohttp.ClientResponseError` (HTTP errors) or `aiohttp.ClientError` (connection errors). No SDK-level translation to custom exceptions.
-- **Logging**: errors are logged via `logger.error` before re-raising.
+Consequence:
 
-### Method return types
+- lightweight object construction
+- callers can instantiate the client without opening a socket immediately
+- unclosed-session risk exists if callers do not use `async with` or `close()`
 
-Most methods return typed pydantic models. A few return `Union[Model, Dict[str, Any]]` to handle unexpected response shapes gracefully:
+### 3. Most methods share one request path
 
-| Method | Return type |
-|---|---|
-| `ai_search` | `ResponseData` or `dict` |
-| `ai_web_links_search` | `WebSearchResponse` |
-| `ai_x_links_search` | `XLinksSearchResponse` |
-| `x_search` | `List[TwitterScraperTweet]` or `dict` |
-| `x_posts_by_urls` | `List[TwitterScraperTweet]` |
-| `x_post_by_id` | `TwitterScraperTweet` |
-| `x_posts_by_user` | `List[TwitterScraperTweet]` or `dict` |
-| `x_post_retweeters` | `XRetweetersResponse` |
-| `x_user_posts` | `XUserPostsResponse` |
-| `x_user_replies` | `List[TwitterScraperTweet]` or `dict` |
-| `x_post_replies` | `List[TwitterScraperTweet]` or `dict` |
-| `x_trends` | `XTrendsResponse` |
-| `web_search` | `WebSearchResultsResponse` |
-| `web_crawl` | `str` (raw response text) |
+`_handle_request()` is the common path for most endpoints. It centralizes:
 
----
+- session acquisition
+- a hardcoded `aiohttp.ClientTimeout(total=120)`
+- `response.raise_for_status()`
+- JSON decoding
+- error logging before re-raise
 
-## Pydantic models (`models.py`)
+This keeps the repo small, but it also means the same timeout and JSON expectations are applied broadly.
 
-### Design choices
+### 4. Two methods intentionally bypass the shared helper
 
-- `model_config = ConfigDict(extra="allow")` is set on all models. The API may return fields not defined in the local schema; this prevents parse failures and allows forward compatibility.
-- Most fields are typed as `Optional` with sensible defaults (`None` or `""`).
-- Nested models mirror the API's JSON structure for Twitter entities (user, tweet, media, entities, extended_entities).
+`x_posts_by_urls()` and `web_crawl()` build direct `client.request(...)` calls instead of delegating to `_handle_request()`.
 
-### Model groups
+Why that appears to exist in the current code:
 
-**Twitter core**
-- `TwitterScraperTweet` — top-level tweet object
-- `TwitterScraperUser` — user profile
-- `TwitterScraperEntities` — hashtags, mentions, URLs, media
-- `TwitterScraperEntitiesMedia` — media attachment (photos, videos, GIFs)
-- `TwitterScraperExtendedEntities` — alternative media container
-- `TwitterScraperMedia` — simplified media reference
+- `x_posts_by_urls()` needs repeated `urls` query params expressed as a tuple list
+- `web_crawl()` returns `response.text()` instead of JSON
 
-**AI search**
-- `ResponseData` — multi-source AI search results; returns raw `dict` values per source
-- `XLinksSearchResponse` — wraps `List[TwitterScraperTweet]` from the miner network
-- `WebSearchResponse` — per-source link results (YouTube, HN, Reddit, arXiv, Wikipedia, web)
-- `WebSearchResultItem` — individual SERP result with `title`, `snippet`, `link`
+Tradeoff:
 
-**X utility**
-- `XRetweetersResponse` — retweeter list + pagination cursor
-- `XUserPostsResponse` — user info + tweet list + pagination cursor
-- `XTrendsResponse` — trend items + location metadata
+- these methods can support their special request shapes cleanly
+- request/error logic is duplicated, so future transport changes must be updated in more than one place
 
-**Enums**
-- `Tool`, `WebTool`, `DateFilter`, `ResultType`, `Sort`
+## Data model design
 
-**Errors**
-- `ValidationError`, `HTTPValidationError`, `UnauthorizedResponse`, `TooManyRequestsResponse`, `InternalServerErrorResponse`, `MovedPermanentlyResponse`
+### Permissive schemas over strict schemas
 
----
+The models use `ConfigDict(extra="allow")` broadly. That is a deliberate tolerance choice visible in the source.
 
-## Exports (`__init__.py`)
+Why this matters:
 
-`desearch_py/__init__.py` re-exports:
+- the SDK can survive additive API changes without breaking parsing
+- unknown response fields remain accessible on model instances
+- docs must not over-promise strict schema validation
 
-- The `Desearch` client class
-- All enums: `Tool`, `WebTool`, `DateFilter`, `ResultType`, `Sort`
-- All response models
-- All error models
-- All Twitter entity models
+### Typed when practical, tolerant when needed
 
-Users only need:
+Most methods instantiate `pydantic` models directly, but several methods return `Union[..., Dict[str, Any]]` and fall back to raw dictionaries when shape assumptions fail.
 
-```python
-from desearch_py import Desearch, Tool, DateFilter
-```
+That pattern shows the SDK favors resilience over rigid typing for unstable or miner-shaped responses.
 
----
+## Public API boundary
 
-## HTTP details
+`desearch_py/__init__.py` is the package boundary for consumers. It re-exports:
 
-| Detail | Value |
-|---|---|
-| Base URL | `https://api.desearch.ai` |
-| Auth method | `Authorization: <api_key>` (raw token, no `Bearer` prefix) |
-| Timeout | 120 s global, no per-method override |
-| Compression | `Accept-Encoding: gzip, deflate` |
-| Response format | JSON (all methods except `web_crawl`, which returns raw text/HTML via `response.text()`) |
-| Retry logic | None built in |
-| Rate-limit handling | None built in |
+- `Desearch`
+- enums such as `Tool`, `WebTool`, `DateFilter`, `ResultType`, `Sort`
+- response models
+- error models
+- X/Twitter entity models
 
----
+Practical effect:
 
-## Missing / unimplemented
+- consumers can import from `desearch_py` directly
+- internal file layout can change later without forcing deep import paths, as long as package-root exports stay stable
 
-- **Streaming**: `ai_search` hardcodes `streaming=False`. No public streaming API is exposed.
-- **Custom exceptions**: all errors propagate as raw `aiohttp` exceptions.
-- **Retry / backoff**: not implemented.
-- **Pagination helpers**: cursor-based endpoints (`x_post_retweeters`, `x_user_posts`) return raw cursors; no high-level iterator is provided.
+## Packaging design
+
+The repo keeps both Poetry and setuptools metadata:
+
+- `pyproject.toml` names the package `desearch-py` and declares version `1.2.0`
+- `setup.py` packages the import module `desearch_py` and also declares version `1.2.0`
+
+This dual-metadata setup supports multiple install flows, but it creates a maintenance obligation: version and dependency drift between the two files would be a release bug.
+
+## Documentation design
+
+The repository currently has two documentation layers:
+
+1. source-of-truth Markdown files such as this document
+2. older Sphinx scaffold files and generated HTML under `docs/_build/`
+
+Important current-state detail:
+
+- `docs/conf.py` still names the project `datura-py` and author `Leva`
+- generated HTML in `docs/_build/` repeats the same legacy branding
+
+That means contributors should treat the checked source code and Markdown docs as authoritative, not the generated Sphinx output.
+
+## Non-goals in the current architecture
+
+The current implementation does **not** include:
+
+- built-in retries or backoff
+- SDK-specific exception classes
+- automatic pagination helpers
+- streaming response handling
+- sync client support
+- test or lint infrastructure inside this repo
+
+## Key design decisions
+
+- Keep the SDK async-only, centered on `aiohttp`.
+- Prefer a tiny public client over a large layered abstraction tree.
+- Use tolerant `pydantic` parsing to avoid breaking on additive API changes.
+- Return raw dictionaries in a few unstable paths instead of throwing parsing errors.
+- Keep docs honest about current behavior, even when that behavior is incomplete.

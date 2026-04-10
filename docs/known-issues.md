@@ -1,62 +1,30 @@
-# Known Issues and Limitations — desearch-py SDK
+# Known Issues — desearch-py SDK
 
-> Based on source inspection of `desearch_py/api.py`, `desearch_py/models.py`, and repository docs contents. Version 1.2.0.
+This list covers real current limitations verified from the repository source.
 
----
+## 1. Streaming is not actually available in the SDK
 
-## Confirmed limitations
+**What happens**
 
-### No retry or backoff logic
+`ai_search()` always sends `"streaming": False` in the request payload.
 
-`_handle_request` makes a single HTTP attempt. Network failures, 502/503 errors, and transient timeouts are not retried.
+**Why unresolved**
 
-**Impact**: callers must implement their own retry loops if reliability is required.
+There is no streaming transport, async iterator response path, or SSE handling anywhere in `desearch_py/api.py`.
 
----
+**Impact**
 
-### No custom exception types
+Consumers always wait for a full response payload. Incremental token or event delivery is not available.
 
-All errors propagate as raw `aiohttp` exceptions:
+**Workaround**
 
-- `aiohttp.ClientResponseError` for HTTP 4xx/5xx responses
-- `aiohttp.ClientError` for connection-level failures
-- `asyncio.TimeoutError` if the 120 s timeout is hit
+Use the full-response `ai_search()` flow only.
 
-There is no `DesearchError`, `AuthenticationError`, or `RateLimitError` wrapper.
+## 2. Some methods can return raw dictionaries instead of typed models
 
-**Impact**: consumer code must catch `aiohttp` exceptions directly. Error messages are logged but not translated to SDK-specific types.
+**What happens**
 
----
-
-### Hardcoded 120 s timeout
-
-The timeout is set in `_handle_request`, `x_posts_by_urls`, and `web_crawl`, and cannot be overridden per-method or per-call.
-
-```python
-timeout=aiohttp.ClientTimeout(total=120)
-```
-
-**Impact**: long-running `web_crawl` or `ai_search` calls may fail if they exceed 2 minutes.
-
----
-
-### Streaming not exposed
-
-`ai_search` includes `streaming` in its payload, but the value is hardcoded to `False`:
-
-```python
-"streaming": False,
-```
-
-There is no streaming implementation, no async generator API, and no SSE handling in the SDK.
-
-**Impact**: `ai_search` always returns a complete response. There is no SDK path for incremental output.
-
----
-
-### Some methods may return raw `dict` data instead of typed models
-
-Five methods fall back to raw dictionaries when the response shape does not match the local model logic:
+These methods fall back to raw `dict` values when the response shape is not what the local parser expects:
 
 - `ai_search`
 - `x_search`
@@ -64,81 +32,135 @@ Five methods fall back to raw dictionaries when the response shape does not matc
 - `x_user_replies`
 - `x_post_replies`
 
-Example pattern:
+**Why unresolved**
 
-```python
-data = await self._handle_request("GET", url, params=params)
-if isinstance(data, list):
-    return [TwitterScraperTweet(**item) for item in data]
-return data
-```
+The current design favors tolerance for API shape drift over strict schema enforcement.
 
-**Impact**: callers that rely on strict typing need runtime checks before accessing model attributes.
+**Impact**
 
----
+Callers cannot assume those methods always return model instances.
 
-### `x_posts_by_urls` bypasses the shared request helper
+**Workaround**
 
-Unlike most methods, `x_posts_by_urls` does not use `_handle_request`. It builds a repeated `urls` query parameter list and issues the request directly:
+Check types at runtime before accessing model attributes.
 
-```python
-params: List[tuple] = [("urls", u) for u in urls]
-async with client.request("GET", url, params=params, ...) as response:
-```
+## 3. Retry and backoff are not built in
 
-**Impact**: this endpoint duplicates request/error-handling logic instead of reusing the common helper, so future behavior changes must be updated in two places.
+**What happens**
 
----
+The shared request path performs one request attempt and re-raises transport or HTTP errors.
 
-### `web_crawl` returns raw text, not a typed response model
+**Why unresolved**
 
-`web_crawl` calls `response.text()` and returns the response body as `str` for both supported formats:
+There is no retry helper, middleware, or configurable transport layer in the SDK.
 
-```python
-return await response.text()
-```
+**Impact**
 
-There is no pydantic model for crawl responses.
+Transient failures such as timeouts or temporary upstream instability must be handled by the caller.
 
-**Impact**: callers must parse returned HTML or plain text themselves.
+**Workaround**
 
----
+Wrap SDK calls in caller-side retry logic with bounded backoff.
 
-### Cursor pagination is manual
+## 4. Timeout is fixed at 120 seconds
 
-Cursor-based pagination is present in:
+**What happens**
 
-- `x_post_retweeters` → `XRetweetersResponse.next_cursor`
-- `x_user_posts` → `XUserPostsResponse.next_cursor`
+The SDK hardcodes `aiohttp.ClientTimeout(total=120)` in `_handle_request()`, `x_posts_by_urls()`, and `web_crawl()`.
 
-The SDK does not provide an iterator or helper that automatically follows cursors.
+**Why unresolved**
 
-**Impact**: callers must store `next_cursor` and make follow-up requests manually.
+Timeout configuration is not exposed on the client or individual methods.
 
----
+**Impact**
 
-### Built Sphinx output is checked into the repository
+Long-running crawl or search calls cannot be tuned per environment.
 
-The repository contains both Sphinx source files (`docs/conf.py`, `docs/index.rst`, `docs/Makefile`) and generated output under `docs/_build/`, including:
+**Workaround**
 
-- `docs/_build/index.html`
-- `docs/_build/genindex.html`
-- `docs/_build/search.html`
+Keep requests small where possible, or enforce higher-level timeout handling around SDK usage.
 
-**Impact**: documentation changes can drift from checked-in generated HTML if contributors update Markdown or source files without rebuilding `docs/_build/`.
+## 5. Pagination helpers are missing
 
----
+**What happens**
 
-## Summary table
+Cursor-aware endpoints like `x_post_retweeters()` and `x_user_posts()` return typed responses with cursor fields, but the SDK does not auto-follow them.
 
-| Issue | Severity | Workaround |
+**Why unresolved**
+
+No iterator abstraction or paginator helper exists in the current client.
+
+**Impact**
+
+Consumers must manage cursors manually across multiple requests.
+
+**Workaround**
+
+Persist `next_cursor` from each response and pass it into the next request yourself.
+
+## 6. `web_crawl()` returns raw text only
+
+**What happens**
+
+`web_crawl()` returns `response.text()` directly, not a typed model.
+
+**Why unresolved**
+
+The method is implemented as a lightweight passthrough for `text` or `html` output.
+
+**Impact**
+
+Callers must parse returned content themselves.
+
+**Workaround**
+
+Treat the response as raw HTML or text and parse it in application code.
+
+## 7. Request logic is duplicated in two special-case methods
+
+**What happens**
+
+`x_posts_by_urls()` and `web_crawl()` bypass `_handle_request()` and duplicate direct request and error-handling code.
+
+**Why unresolved**
+
+Each method needs a slightly different transport path, one for repeated query params and one for text responses.
+
+**Impact**
+
+Future transport-level changes can drift if contributors update `_handle_request()` but forget the duplicated paths.
+
+**Workaround**
+
+When changing request behavior, audit those two methods explicitly.
+
+## 8. Sphinx docs scaffolding still has legacy branding
+
+**What happens**
+
+`docs/conf.py` still uses `project = 'datura-py'`, `author = 'Leva'`, and generated files in `docs/_build/` repeat that metadata.
+
+**Why unresolved**
+
+The repo contains an older Sphinx scaffold that has not been fully refreshed to match the current package identity.
+
+**Impact**
+
+Contributors can be misled if they treat generated docs output as authoritative.
+
+**Workaround**
+
+Use `README.md` and the Markdown files in `docs/` as the current documentation source of truth, and verify claims against the Python source.
+
+## Summary
+
+| Limitation | Severity | Workaround |
 |---|---|---|
-| No retry / backoff | Medium | Implement retry in caller |
-| No custom exceptions | Low | Catch `aiohttp` errors directly |
-| Hardcoded 120 s timeout | Low | Split large operations or wrap calls with caller-side timeout handling |
-| Streaming not exposed | Low | Use full-response flow only |
-| Raw `dict` fallback on some methods | Low | Add runtime type checks |
-| `x_posts_by_urls` duplicates request logic | Low | Test URL-batch flows carefully |
-| `web_crawl` returns raw string | Low | Parse content in caller |
-| Manual cursor pagination | Low | Store and reuse `next_cursor` |
-| Built docs checked into repo | Info | Rebuild `docs/_build/` when docs sources change |
+| Streaming unavailable | Medium | Use full-response search only |
+| Mixed typed and raw dict returns | Medium | Add runtime type checks |
+| No retry/backoff | Medium | Retry in caller |
+| Fixed 120 second timeout | Low | Control timeout behavior at the caller layer |
+| No pagination helpers | Low | Manually reuse cursor values |
+| `web_crawl()` returns raw text | Low | Parse returned content yourself |
+| Duplicated request logic | Low | Audit special-case methods during transport changes |
+| Legacy Sphinx branding | Info | Ignore `docs/_build/` as a source of truth |
