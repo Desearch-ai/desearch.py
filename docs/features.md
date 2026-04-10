@@ -66,6 +66,12 @@ Used via `DateFilter` enum or string literal in `ai_search`:
 | `web_search` | `GET /web` | ✅ | SERP-style results. Returns `WebSearchResultsResponse`. |
 | `web_crawl` | `GET /web/crawl` | ✅ | Returns raw `str` (HTML or plain text). 120 s timeout. |
 
+## Client lifecycle
+
+| Method | Status | Notes |
+|---|---|---|
+| `close()` | ✅ | Closes the underlying `aiohttp.ClientSession`. Call when done to release connections. |
+
 ---
 
 ## Pydantic Models (exported)
