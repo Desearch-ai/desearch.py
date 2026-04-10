@@ -1,6 +1,6 @@
 # Known Issues and Limitations — desearch-py SDK
 
-> Based on source inspection of `desearch_py/api.py` and `desearch_py/models.py`. Version 1.2.0.
+> Based on source inspection of `desearch_py/api.py`, `desearch_py/models.py`, and repository docs contents. Version 1.2.0.
 
 ---
 
@@ -30,33 +30,33 @@ There is no `DesearchError`, `AuthenticationError`, or `RateLimitError` wrapper.
 
 ### Hardcoded 120 s timeout
 
-The timeout is set in `_handle_request` and cannot be overridden per-method or per-call.
+The timeout is set in `_handle_request`, `x_posts_by_urls`, and `web_crawl`, and cannot be overridden per-method or per-call.
 
 ```python
 timeout=aiohttp.ClientTimeout(total=120)
 ```
 
-**Impact**: long-running `web_crawl` or `ai_search` calls with large result sets may be killed if they exceed 2 minutes.
+**Impact**: long-running `web_crawl` or `ai_search` calls may fail if they exceed 2 minutes.
 
 ---
 
 ### Streaming not exposed
 
-`ai_search` accepts a `streaming` parameter in its payload but it is hardcoded to `False`:
+`ai_search` includes `streaming` in its payload, but the value is hardcoded to `False`:
 
 ```python
 "streaming": False,
 ```
 
-There is no streaming implementation, no async generator API, and no SSE handling in the codebase.
+There is no streaming implementation, no async generator API, and no SSE handling in the SDK.
 
-**Impact**: `ai_search` always returns a complete JSON response. No way to stream results as they arrive.
+**Impact**: `ai_search` always returns a complete response. There is no SDK path for incremental output.
 
 ---
 
-### Union return types cause type-checking uncertainty
+### Some methods may return raw `dict` data instead of typed models
 
-Five methods return `Union[Model, Dict[str, Any]]`:
+Five methods fall back to raw dictionaries when the response shape does not match the local model logic:
 
 - `ai_search`
 - `x_search`
@@ -64,75 +64,68 @@ Five methods return `Union[Model, Dict[str, Any]]`:
 - `x_user_replies`
 - `x_post_replies`
 
-These methods try to parse the response as a pydantic model first, then fall back to a raw `dict` if parsing fails. This means static type checkers cannot guarantee which type is returned at runtime.
+Example pattern:
 
 ```python
 data = await self._handle_request("GET", url, params=params)
 if isinstance(data, list):
     return [TwitterScraperTweet(**item) for item in data]
-return data   # ← raw dict if not a list
+return data
 ```
 
-**Impact**: consumers using strict type checkers (mypy, pyright) will see union-typed results and may need runtime `isinstance` checks.
+**Impact**: callers that rely on strict typing need runtime checks before accessing model attributes.
 
 ---
 
-### Authorization header format is non-standard
+### `x_posts_by_urls` bypasses the shared request helper
 
-The SDK sends the API key as a raw token without a `Bearer` prefix:
-
-```python
-headers={"Authorization": self.api_key, ...}
-```
-
-If the Desearch API expects `Authorization: Bearer <key>`, all requests will return 401.
-
-**Impact**: verify with the API documentation whether `Bearer` is required. Current implementation matches what is in `_ensure_session`.
-
----
-
-### `x_posts_by_urls` uses a different request path
-
-Unlike other GET methods that route through `_handle_request`, `x_posts_by_urls` builds its request directly:
+Unlike most methods, `x_posts_by_urls` does not use `_handle_request`. It builds a repeated `urls` query parameter list and issues the request directly:
 
 ```python
 params: List[tuple] = [("urls", u) for u in urls]
 async with client.request("GET", url, params=params, ...) as response:
 ```
 
-URL encoding of repeated `urls` parameters may behave differently from the shared helper's query-string building.
-
-**Impact**: test thoroughly when fetching more than a few URLs in a single call.
+**Impact**: this endpoint duplicates request/error-handling logic instead of reusing the common helper, so future behavior changes must be updated in two places.
 
 ---
 
-### `web_crawl` returns raw string, not a model
+### `web_crawl` returns raw text, not a typed response model
 
-`web_crawl` calls `response.text()` and returns the raw response body as `str`, regardless of whether `format="html"` or `format="text"`.
+`web_crawl` calls `response.text()` and returns the response body as `str` for both supported formats:
 
-There is no structured response model.
+```python
+return await response.text()
+```
 
-**Impact**: HTML responses are returned as raw HTML strings. Consumers must parse them separately.
+There is no pydantic model for crawl responses.
+
+**Impact**: callers must parse returned HTML or plain text themselves.
 
 ---
 
-### No cursor helper for paginated endpoints
+### Cursor pagination is manual
 
 Cursor-based pagination is present in:
+
 - `x_post_retweeters` → `XRetweetersResponse.next_cursor`
 - `x_user_posts` → `XUserPostsResponse.next_cursor`
 
-There is no built-in iterator or helper to auto-fetch subsequent pages.
+The SDK does not provide an iterator or helper that automatically follows cursors.
 
-**Impact**: callers must manage cursors manually and implement their own pagination loops.
+**Impact**: callers must store `next_cursor` and make follow-up requests manually.
 
 ---
 
-### `docs/` directory contains Sphinx scaffolding that has not been built
+### Built Sphinx output is checked into the repository
 
-The repository ships a `docs/` directory with Sphinx configuration (`conf.py`, `index.rst`, `Makefile`). These files exist alongside the prose documentation (`features.md`, `architecture.md`, `known-issues.md`) in the same directory.
+The repository contains both Sphinx source files (`docs/conf.py`, `docs/index.rst`, `docs/Makefile`) and generated output under `docs/_build/`, including:
 
-**Impact**: The Sphinx build files have not been built into a published HTML site. No generated `_build/` output is present in the repository.
+- `docs/_build/index.html`
+- `docs/_build/genindex.html`
+- `docs/_build/search.html`
+
+**Impact**: documentation changes can drift from checked-in generated HTML if contributors update Markdown or source files without rebuilding `docs/_build/`.
 
 ---
 
@@ -142,11 +135,10 @@ The repository ships a `docs/` directory with Sphinx configuration (`conf.py`, `
 |---|---|---|
 | No retry / backoff | Medium | Implement retry in caller |
 | No custom exceptions | Low | Catch `aiohttp` errors directly |
-| Hardcoded 120 s timeout | Low | Use signal/alarm to interrupt; none in async context |
-| Streaming not exposed | Low | Not needed for current API surface |
-| Union return types | Low | Runtime `isinstance` checks |
-| Auth header format | **High** (if API expects `Bearer`) | Verify with API team |
-| `x_posts_by_urls` param encoding | Low | Test multi-URL batches |
-| `web_crawl` returns raw string | Low | Parse HTML with `BeautifulSoup` etc. |
-| No pagination helpers | Low | Manage cursors manually |
-| Sphinx scaffolding not built | Info | No `_build/` output present; browse `docs/*.md` directly |
+| Hardcoded 120 s timeout | Low | Split large operations or wrap calls with caller-side timeout handling |
+| Streaming not exposed | Low | Use full-response flow only |
+| Raw `dict` fallback on some methods | Low | Add runtime type checks |
+| `x_posts_by_urls` duplicates request logic | Low | Test URL-batch flows carefully |
+| `web_crawl` returns raw string | Low | Parse content in caller |
+| Manual cursor pagination | Low | Store and reuse `next_cursor` |
+| Built docs checked into repo | Info | Rebuild `docs/_build/` when docs sources change |
