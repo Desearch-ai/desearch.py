@@ -128,11 +128,11 @@ There is no built-in iterator or helper to auto-fetch subsequent pages.
 
 ---
 
-### `docs/` directory contains Sphinx scaffolding, not the active docs
+### `docs/` directory contains Sphinx scaffolding that has not been built
 
-The repository ships a `docs/` directory with Sphinx configuration (`conf.py`, `index.rst`, `Makefile`) sourced from the repository itself. These files exist alongside `features.md`, `architecture.md`, and `known-issues.md` in the same directory.
+The repository ships a `docs/` directory with Sphinx configuration (`conf.py`, `index.rst`, `Makefile`). These files exist alongside the prose documentation (`features.md`, `architecture.md`, `known-issues.md`) in the same directory.
 
-**Impact**: the prose docs (`features.md`, `architecture.md`, `known-issues.md`) are the maintained reference. The Sphinx build files (`conf.py`, `index.rst`, `Makefile`) are scaffolding and have not been built into a published site.
+**Impact**: The Sphinx build files have not been built into a published HTML site. No generated `_build/` output is present in the repository.
 
 ---
 
@@ -149,4 +149,4 @@ The repository ships a `docs/` directory with Sphinx configuration (`conf.py`, `
 | `x_posts_by_urls` param encoding | Low | Test multi-URL batches |
 | `web_crawl` returns raw string | Low | Parse HTML with `BeautifulSoup` etc. |
 | No pagination helpers | Low | Manage cursors manually |
-| Sphinx scaffolding not published | Info | Use `docs/*.md` files as reference |
+| Sphinx scaffolding not built | Info | No `_build/` output present; browse `docs/*.md` directly |
