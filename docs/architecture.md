@@ -65,6 +65,7 @@ Consequence:
 - a hardcoded `aiohttp.ClientTimeout(total=120)`
 - `response.raise_for_status()`
 - JSON decoding
+- optional cost metadata extraction from `X-Desearch-*` response headers
 - error logging before re-raise
 
 This keeps the repo small, but it also means the same timeout and JSON expectations are applied broadly.
@@ -82,6 +83,7 @@ Tradeoff:
 
 - these methods can support their special request shapes cleanly
 - request/error logic is duplicated, so future transport changes must be updated in more than one place
+- both paths still parse the same optional response cost metadata when callers pass `include_metadata=True`
 
 ## Data model design
 
@@ -101,6 +103,13 @@ Most methods instantiate `pydantic` models directly, but several methods return 
 
 That pattern shows the SDK favors resilience over rigid typing for unstable or miner-shaped responses.
 
+
+### Optional response metadata wrapper
+
+Every public endpoint keeps its existing default return shape. For example, `await client.web_crawl(url="https://desearch.ai")` still returns raw text and `await client.x_search(query="desearch")` still returns the parsed tweet list or raw dictionary.
+
+Callers that pass `include_metadata=True` receive `DesearchResponse[data, metadata]` instead. The `data` field contains the same payload the method would have returned by default, and `metadata` is parsed from the same response headers: `X-Desearch-Cost-Cents`, `X-Desearch-Usage-Count`, `X-Desearch-Service`, and `X-Desearch-Currency`. Numeric parse failures become `None` so successful API responses are not turned into SDK errors.
+
 ## Public API boundary
 
 `desearch_py/__init__.py` is the package boundary for consumers. It re-exports:
@@ -108,6 +117,7 @@ That pattern shows the SDK favors resilience over rigid typing for unstable or m
 - `Desearch`
 - enums such as `Tool`, `WebTool`, `DateFilter`, `ResultType`, `Sort`
 - response models
+- response metadata wrapper models
 - error models
 - X/Twitter entity models
 

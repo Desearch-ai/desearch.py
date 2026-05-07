@@ -46,6 +46,37 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
+
+### Read optional response cost metadata
+
+Default calls continue to return the original typed payload only:
+
+```python
+result = await client.ai_search(
+    prompt="What happened in Bittensor this week?",
+    tools=["web", "twitter"],
+)
+print(result.text)
+```
+
+When you want per-request cost visibility, opt in with `include_metadata=True`:
+
+```python
+response = await client.ai_search(
+    prompt="What happened in Bittensor this week?",
+    tools=["web", "twitter"],
+    include_metadata=True,
+)
+
+print(response.data.text)
+print(response.metadata.cost_cents)
+print(response.metadata.usage_count)
+print(response.metadata.service)
+print(response.metadata.currency)
+```
+
+The SDK reads metadata from the same API response headers (`X-Desearch-Cost-Cents`, `X-Desearch-Usage-Count`, `X-Desearch-Service`, and `X-Desearch-Currency`). Missing or malformed numeric headers are exposed as `None` instead of breaking a successful API call.
+
 ### Reuse the client manually
 
 ```python
@@ -84,9 +115,10 @@ Dependencies declared in source:
 | Install local repo with Poetry | `poetry install` | Uses `pyproject.toml` |
 | Build distributables | `poetry build` | Produces package artifacts |
 | Publish package | `./publish.sh` | Repository script |
+| Run tests | `poetry run python -m unittest discover -s tests -v` | Uses the stdlib unittest runner |
 | Build Sphinx docs | `make -C docs html` | Requires Sphinx dev deps |
 
-There are currently **no dedicated test, lint, or format commands configured in the repo**. This is an accurate reflection of the current source tree, not an omission in this README.
+A minimal unittest suite covers response metadata behavior. There is still no dedicated lint or format command configured in the repo.
 
 ## Tech stack
 
@@ -123,7 +155,7 @@ There are currently **no dedicated test, lint, or format commands configured in 
 
 ### Typed exports
 
-The package re-exports the async client plus enums and models from `desearch_py.models`, including `Tool`, `WebTool`, `DateFilter`, `ResultType`, `Sort`, `ResponseData`, `TwitterScraperTweet`, `WebSearchResponse`, `WebSearchResultsResponse`, `XLinksSearchResponse`, `XRetweetersResponse`, `XUserPostsResponse`, and `XTrendsResponse`.
+The package re-exports the async client plus enums and models from `desearch_py.models`, including `Tool`, `WebTool`, `DateFilter`, `ResultType`, `Sort`, `ResponseData`, `DesearchCostMetadata`, `DesearchResponse`, `TwitterScraperTweet`, `WebSearchResponse`, `WebSearchResultsResponse`, `XLinksSearchResponse`, `XRetweetersResponse`, `XUserPostsResponse`, and `XTrendsResponse`.
 
 ## Architecture overview
 
@@ -138,7 +170,8 @@ Key design decisions visible in code:
 - the HTTP session is created lazily on first use
 - auth is sent as `Authorization: <api_key>` with no `Bearer` prefix
 - most requests share a single helper with a fixed 120 second timeout
-- `x_posts_by_urls` and `web_crawl` bypass that shared helper and make direct requests
+- successful responses can opt in to a `DesearchResponse` wrapper with parsed cost metadata from response headers
+- `x_posts_by_urls` and `web_crawl` bypass that shared helper and make direct requests, but still support the metadata wrapper
 - some endpoints fall back to raw `dict` values instead of failing model parsing
 - `ai_search` always sends `"streaming": False`
 

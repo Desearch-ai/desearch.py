@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, Generic, List, Optional, TypeVar, Union
 
 from pydantic import BaseModel, ConfigDict
+
+T = TypeVar("T")
 
 # ─── Enums ────────────────────────────────────────────────────────────────────
 
@@ -332,6 +334,26 @@ class WebSearchResultsResponse(BaseModel):
     data: List[WebSearchResultItem]
 
 
+
+
+# ─── Response Metadata Models ────────────────────────────────────────────────
+
+
+class DesearchCostMetadata(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    cost_cents: Optional[float] = None
+    usage_count: Optional[int] = None
+    service: Optional[str] = None
+    currency: Optional[str] = None
+
+
+class DesearchResponse(BaseModel, Generic[T]):
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+    data: T
+    metadata: DesearchCostMetadata
+
 # ─── AI Search Response Model ────────────────────────────────────────────────
 
 
@@ -346,6 +368,10 @@ class ResponseData(BaseModel):
     text: Optional[str] = None
     miner_link_scores: Optional[Dict[str, str]] = None
     completion: Optional[str] = None
+    cost_cents: Optional[float] = None
+    usage_count: Optional[int] = None
+    service: Optional[str] = None
+    currency: Optional[str] = None
 
 
 # ─── X Links Search Response ─────────────────────────────────────────────────
