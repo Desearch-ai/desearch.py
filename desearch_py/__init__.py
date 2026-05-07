@@ -1,6 +1,8 @@
 from .api import Desearch
 from .models import (
     DateFilter,
+    DesearchCostMetadata,
+    DesearchResponse,
     HTTPValidationError,
     InternalServerErrorResponse,
     MediaSize,
@@ -52,6 +54,8 @@ from .models import (
 __all__ = [
     "Desearch",
     "DateFilter",
+    "DesearchCostMetadata",
+    "DesearchResponse",
     "HTTPValidationError",
     "InternalServerErrorResponse",
     "MediaSize",
