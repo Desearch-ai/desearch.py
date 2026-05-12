@@ -108,7 +108,7 @@ That pattern shows the SDK favors resilience over rigid typing for unstable or m
 
 Every public endpoint keeps its existing default return shape. For example, `await client.web_crawl(url="https://desearch.ai")` still returns raw text and `await client.x_search(query="desearch")` still returns the parsed tweet list or raw dictionary.
 
-Callers that pass `include_metadata=True` receive `DesearchResponse[data, metadata]` instead. The `data` field contains the same payload the method would have returned by default, and `metadata` is parsed from the same response headers: `X-Desearch-Cost-Cents`, `X-Desearch-Usage-Count`, `X-Desearch-Service`, and `X-Desearch-Currency`. Numeric parse failures become `None` so successful API responses are not turned into SDK errors.
+Callers that pass `include_metadata=True` receive `DesearchResponse[data, metadata]` instead. The `data` field contains the same payload the method would have returned by default, and `metadata` is parsed from the same response headers: `X-Desearch-Cost-Usd` (for example `0.00015`), `X-Desearch-Usage-Count`, `X-Desearch-Service`, and `X-Desearch-Currency`. Numeric parse failures become `None` so successful API responses are not turned into SDK errors.
 
 ## Public API boundary
 

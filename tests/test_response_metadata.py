@@ -62,7 +62,7 @@ class ResponseMetadataTests(unittest.IsolatedAsyncioTestCase):
         ai_client = self.make_client(
             FakeResponse(
                 json_data={"text": "answer"},
-                headers={"X-Desearch-Cost-Cents": "1.25"},
+                headers={"X-Desearch-Cost-Usd": "0.00015"},
             )
         )
         ai_result = await ai_client.ai_search(prompt="q", tools=["web"])
@@ -73,7 +73,7 @@ class ResponseMetadataTests(unittest.IsolatedAsyncioTestCase):
         x_client = self.make_client(
             FakeResponse(
                 json_data=[TWEET],
-                headers={"X-Desearch-Cost-Cents": "1.25"},
+                headers={"X-Desearch-Cost-Usd": "0.00015"},
             )
         )
         x_result = await x_client.x_search(query="desearch")
@@ -83,7 +83,7 @@ class ResponseMetadataTests(unittest.IsolatedAsyncioTestCase):
         crawl_client = self.make_client(
             FakeResponse(
                 text_data="plain crawl text",
-                headers={"X-Desearch-Cost-Cents": "1.25"},
+                headers={"X-Desearch-Cost-Usd": "0.00015"},
             )
         )
         crawl_result = await crawl_client.web_crawl(url="https://desearch.ai")
@@ -91,7 +91,7 @@ class ResponseMetadataTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_include_metadata_wraps_data_and_parsed_response_headers(self):
         headers = {
-            "X-Desearch-Cost-Cents": "2.5",
+            "X-Desearch-Cost-Usd": "0.00025",
             "X-Desearch-Usage-Count": "7",
             "X-Desearch-Service": "twitter",
             "X-Desearch-Currency": "USD",
@@ -103,14 +103,14 @@ class ResponseMetadataTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsInstance(result, DesearchResponse)
         self.assertIsInstance(result.data, list)
         self.assertIsInstance(result.data[0], TwitterScraperTweet)
-        self.assertEqual(result.metadata.cost_cents, 2.5)
+        self.assertEqual(result.metadata.cost_usd, 0.00025)
         self.assertEqual(result.metadata.usage_count, 7)
         self.assertEqual(result.metadata.service, "twitter")
         self.assertEqual(result.metadata.currency, "USD")
 
     async def test_custom_json_and_text_paths_support_include_metadata(self):
         headers = {
-            "X-Desearch-Cost-Cents": "0.5",
+            "X-Desearch-Cost-Usd": "0.00005",
             "X-Desearch-Usage-Count": "1",
             "X-Desearch-Service": "crawl",
             "X-Desearch-Currency": "USD",
@@ -121,7 +121,7 @@ class ResponseMetadataTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertIsInstance(urls_result, DesearchResponse)
         self.assertIsInstance(urls_result.data[0], TwitterScraperTweet)
-        self.assertEqual(urls_result.metadata.cost_cents, 0.5)
+        self.assertEqual(urls_result.metadata.cost_usd, 0.00005)
 
         crawl_client = self.make_client(FakeResponse(text_data="content", headers=headers))
         crawl_result = await crawl_client.web_crawl(
@@ -136,7 +136,7 @@ class ResponseMetadataTests(unittest.IsolatedAsyncioTestCase):
             FakeResponse(
                 json_data={"text": "ok"},
                 headers={
-                    "X-Desearch-Cost-Cents": "NaN",
+                    "X-Desearch-Cost-Usd": "NaN",
                     "X-Desearch-Usage-Count": "also-bad",
                 },
             )
@@ -148,7 +148,7 @@ class ResponseMetadataTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertIsInstance(result, DesearchResponse)
         self.assertEqual(result.data.text, "ok")
-        self.assertIsNone(result.metadata.cost_cents)
+        self.assertIsNone(result.metadata.cost_usd)
         self.assertIsNone(result.metadata.usage_count)
         self.assertIsNone(result.metadata.service)
         self.assertIsNone(result.metadata.currency)

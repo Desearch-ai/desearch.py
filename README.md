@@ -69,13 +69,13 @@ response = await client.ai_search(
 )
 
 print(response.data.text)
-print(response.metadata.cost_cents)
+print(response.metadata.cost_usd)
 print(response.metadata.usage_count)
 print(response.metadata.service)
 print(response.metadata.currency)
 ```
 
-The SDK reads metadata from the same API response headers (`X-Desearch-Cost-Cents`, `X-Desearch-Usage-Count`, `X-Desearch-Service`, and `X-Desearch-Currency`). Missing or malformed numeric headers are exposed as `None` instead of breaking a successful API call.
+The SDK reads metadata from the same API response headers (`X-Desearch-Cost-Usd`, for example `0.00015`, plus `X-Desearch-Usage-Count`, `X-Desearch-Service`, and `X-Desearch-Currency`). Missing or malformed numeric headers are exposed as `None` instead of breaking a successful API call.
 
 ### Reuse the client manually
 
