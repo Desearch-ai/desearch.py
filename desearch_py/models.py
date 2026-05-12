@@ -342,7 +342,7 @@ class WebSearchResultsResponse(BaseModel):
 class DesearchCostMetadata(BaseModel):
     model_config = ConfigDict(extra="allow")
 
-    cost_cents: Optional[float] = None
+    cost_usd: Optional[float] = None
     usage_count: Optional[int] = None
     service: Optional[str] = None
     currency: Optional[str] = None
@@ -368,7 +368,7 @@ class ResponseData(BaseModel):
     text: Optional[str] = None
     miner_link_scores: Optional[Dict[str, str]] = None
     completion: Optional[str] = None
-    cost_cents: Optional[float] = None
+    cost_usd: Optional[float] = None
     usage_count: Optional[int] = None
     service: Optional[str] = None
     currency: Optional[str] = None
