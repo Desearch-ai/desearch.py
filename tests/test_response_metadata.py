@@ -131,6 +131,21 @@ class ResponseMetadataTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(crawl_result.data, "content")
         self.assertEqual(crawl_result.metadata.service, "crawl")
 
+    async def test_legacy_cents_header_is_not_treated_as_canonical_usd_metadata(self):
+        client = self.make_client(
+            FakeResponse(
+                json_data={"text": "ok"},
+                headers={"X-Desearch-Cost-Cents": "0.15"},
+            )
+        )
+
+        result = await client.ai_search(
+            prompt="q", tools=["web"], include_metadata=True
+        )
+
+        self.assertIsInstance(result, DesearchResponse)
+        self.assertIsNone(result.metadata.cost_usd)
+
     async def test_missing_or_malformed_metadata_headers_do_not_break_successful_calls(self):
         client = self.make_client(
             FakeResponse(

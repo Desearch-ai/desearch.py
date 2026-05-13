@@ -130,8 +130,8 @@ Practical effect:
 
 The repo keeps both Poetry and setuptools metadata:
 
-- `pyproject.toml` names the package `desearch-py` and declares version `1.2.0`
-- `setup.py` packages the import module `desearch_py` and also declares version `1.2.0`
+- `pyproject.toml` names the package `desearch-py` and declares version `1.2.1`
+- `setup.py` packages the import module `desearch_py` and also declares version `1.2.1`
 
 This dual-metadata setup supports multiple install flows, but it creates a maintenance obligation: version and dependency drift between the two files would be a release bug.
 
