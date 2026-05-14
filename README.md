@@ -2,7 +2,7 @@
 
 Official async Python SDK for the Desearch API.
 
-`desearch-py` is a thin `aiohttp` client for the Desearch public API. It wraps search, X, and crawl endpoints behind a single async client class and returns `pydantic` models for most successful responses. The package metadata currently reports **version 1.2.0** and requires **Python 3.9+**.
+`desearch-py` is a thin `aiohttp` client for the Desearch public API. It wraps search, X, and crawl endpoints behind a single async client class and returns `pydantic` models for most successful responses. The package metadata currently reports **version 1.2.1** and requires **Python 3.9+**.
 
 ## Package purpose
 
@@ -69,13 +69,13 @@ response = await client.ai_search(
 )
 
 print(response.data.text)
-print(response.metadata.cost_cents)
+print(response.metadata.cost_usd)
 print(response.metadata.usage_count)
 print(response.metadata.service)
 print(response.metadata.currency)
 ```
 
-The SDK reads metadata from the same API response headers (`X-Desearch-Cost-Cents`, `X-Desearch-Usage-Count`, `X-Desearch-Service`, and `X-Desearch-Currency`). Missing or malformed numeric headers are exposed as `None` instead of breaking a successful API call.
+The SDK reads metadata from the same API response headers (`X-Desearch-Cost-Usd`, for example `0.00015`, plus `X-Desearch-Usage-Count`, `X-Desearch-Service`, and `X-Desearch-Currency`). Missing or malformed numeric headers are exposed as `None` instead of breaking a successful API call.
 
 ### Reuse the client manually
 

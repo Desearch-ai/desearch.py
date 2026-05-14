@@ -86,7 +86,7 @@ class Desearch:
     def _extract_cost_metadata(cls, headers: Any) -> DesearchCostMetadata:
         """Parse optional Desearch per-request cost metadata from response headers."""
         return DesearchCostMetadata(
-            cost_cents=cls._parse_float(headers.get("X-Desearch-Cost-Cents")),
+            cost_usd=cls._parse_float(headers.get("X-Desearch-Cost-Usd")),
             usage_count=cls._parse_int(headers.get("X-Desearch-Usage-Count")),
             service=headers.get("X-Desearch-Service"),
             currency=headers.get("X-Desearch-Currency"),
