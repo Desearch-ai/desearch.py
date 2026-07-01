@@ -132,7 +132,7 @@ A minimal unittest suite covers response metadata behavior. There is still no de
 
 ### AI search
 
-- `ai_search`
+- `ai_search` — also accepts `start_date`/`end_date` (UTC `YYYY-MM-DDTHH:MM:SSZ`), `include_domains`/`exclude_domains`, and `result_type` (`ONLY_LINKS` / `LINKS_WITH_FINAL_SUMMARY`). `date_filter` is a deprecated relative window the API translates into a date range.
 - `ai_web_links_search`
 - `ai_x_links_search`
 

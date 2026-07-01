@@ -146,7 +146,9 @@ class Desearch:
                 data = await response.json()
                 return self._with_metadata(data, metadata, include_metadata)
         except aiohttp.ClientResponseError as e:
-            logger.error("HTTP error %s for %s %s: %s", e.status, method, url, e.message)
+            logger.error(
+                "HTTP error %s for %s %s: %s", e.status, method, url, e.message
+            )
             raise
         except aiohttp.ClientError as e:
             logger.error("Client error for %s %s: %s", method, url, str(e))
@@ -158,14 +160,20 @@ class Desearch:
         tools: List[str],
         start_date: Optional[str] = None,
         end_date: Optional[str] = None,
-        date_filter: Optional[str] = "PAST_24_HOURS",
+        date_filter: Optional[str] = None,
         result_type: Optional[str] = "LINKS_WITH_FINAL_SUMMARY",
         system_message: Optional[str] = None,
         scoring_system_message: Optional[str] = None,
+        include_domains: Optional[List[str]] = None,
+        exclude_domains: Optional[List[str]] = None,
         count: Optional[int] = None,
         *,
         include_metadata: bool = False,
-    ) -> Union[ResponseData, Dict[str, Any], DesearchResponse[Union[ResponseData, Dict[str, Any]]]]:
+    ) -> Union[
+        ResponseData,
+        Dict[str, Any],
+        DesearchResponse[Union[ResponseData, Dict[str, Any]]],
+    ]:
         """
         AI-powered multi-source contextual search.
 
@@ -174,10 +182,12 @@ class Desearch:
             tools (List[str]): List of tools to search with (e.g. web, twitter, reddit).
             start_date (Optional[str]): Start date in UTC (YYYY-MM-DDTHH:MM:SSZ).
             end_date (Optional[str]): End date in UTC (YYYY-MM-DDTHH:MM:SSZ).
-            date_filter (Optional[str]): Predefined date filter for search results.
+            date_filter (Optional[str]): Deprecated relative window; the API translates it to start_date/end_date. Prefer start_date/end_date.
             result_type (Optional[str]): Result type (ONLY_LINKS or LINKS_WITH_FINAL_SUMMARY).
             system_message (Optional[str]): System message for the search.
             scoring_system_message (Optional[str]): System message for scoring the response.
+            include_domains (Optional[List[str]]): Restrict Web Search results to these domains.
+            exclude_domains (Optional[List[str]]): Drop Web Search results from these domains.
             count (Optional[int]): Number of results to return per source (10-200).
 
         Returns:
@@ -196,6 +206,8 @@ class Desearch:
                 "result_type": result_type,
                 "system_message": system_message,
                 "scoring_system_message": scoring_system_message,
+                "include_domains": include_domains,
+                "exclude_domains": exclude_domains,
                 "count": count,
             }.items()
             if v is not None
@@ -246,7 +258,9 @@ class Desearch:
             "POST", url, json=payload, include_metadata=include_metadata
         )
         data, metadata = self._split_response(result, include_metadata)
-        return self._with_metadata(WebSearchResponse(**data), metadata, include_metadata)
+        return self._with_metadata(
+            WebSearchResponse(**data), metadata, include_metadata
+        )
 
     async def ai_x_links_search(
         self,
@@ -278,7 +292,9 @@ class Desearch:
             "POST", url, json=payload, include_metadata=include_metadata
         )
         data, metadata = self._split_response(result, include_metadata)
-        return self._with_metadata(XLinksSearchResponse(**data), metadata, include_metadata)
+        return self._with_metadata(
+            XLinksSearchResponse(**data), metadata, include_metadata
+        )
 
     async def x_search(
         self,
@@ -299,7 +315,11 @@ class Desearch:
         count: Optional[int] = 20,
         *,
         include_metadata: bool = False,
-    ) -> Union[List[TwitterScraperTweet], Dict[str, Any], DesearchResponse[Union[List[TwitterScraperTweet], Dict[str, Any]]]]:
+    ) -> Union[
+        List[TwitterScraperTweet],
+        Dict[str, Any],
+        DesearchResponse[Union[List[TwitterScraperTweet], Dict[str, Any]]],
+    ]:
         """
         Search X (Twitter) with extensive filtering options.
 
@@ -409,7 +429,9 @@ class Desearch:
             "GET", url, params=params, include_metadata=include_metadata
         )
         data, metadata = self._split_response(result, include_metadata)
-        return self._with_metadata(TwitterScraperTweet(**data), metadata, include_metadata)
+        return self._with_metadata(
+            TwitterScraperTweet(**data), metadata, include_metadata
+        )
 
     async def x_posts_by_user(
         self,
@@ -418,7 +440,11 @@ class Desearch:
         count: Optional[int] = None,
         *,
         include_metadata: bool = False,
-    ) -> Union[List[TwitterScraperTweet], Dict[str, Any], DesearchResponse[Union[List[TwitterScraperTweet], Dict[str, Any]]]]:
+    ) -> Union[
+        List[TwitterScraperTweet],
+        Dict[str, Any],
+        DesearchResponse[Union[List[TwitterScraperTweet], Dict[str, Any]]],
+    ]:
         """
         Search X (Twitter) posts by a specific user with optional keyword filtering.
 
@@ -479,7 +505,9 @@ class Desearch:
             "GET", url, params=params, include_metadata=include_metadata
         )
         data, metadata = self._split_response(result, include_metadata)
-        return self._with_metadata(XRetweetersResponse(**data), metadata, include_metadata)
+        return self._with_metadata(
+            XRetweetersResponse(**data), metadata, include_metadata
+        )
 
     async def x_user_posts(
         self,
@@ -511,7 +539,9 @@ class Desearch:
             "GET", url, params=params, include_metadata=include_metadata
         )
         data, metadata = self._split_response(result, include_metadata)
-        return self._with_metadata(XUserPostsResponse(**data), metadata, include_metadata)
+        return self._with_metadata(
+            XUserPostsResponse(**data), metadata, include_metadata
+        )
 
     async def x_user_replies(
         self,
@@ -520,7 +550,11 @@ class Desearch:
         query: Optional[str] = None,
         *,
         include_metadata: bool = False,
-    ) -> Union[List[TwitterScraperTweet], Dict[str, Any], DesearchResponse[Union[List[TwitterScraperTweet], Dict[str, Any]]]]:
+    ) -> Union[
+        List[TwitterScraperTweet],
+        Dict[str, Any],
+        DesearchResponse[Union[List[TwitterScraperTweet], Dict[str, Any]]],
+    ]:
         """
         Fetch tweets and replies posted by a specific user.
 
@@ -558,7 +592,11 @@ class Desearch:
         query: Optional[str] = None,
         *,
         include_metadata: bool = False,
-    ) -> Union[List[TwitterScraperTweet], Dict[str, Any], DesearchResponse[Union[List[TwitterScraperTweet], Dict[str, Any]]]]:
+    ) -> Union[
+        List[TwitterScraperTweet],
+        Dict[str, Any],
+        DesearchResponse[Union[List[TwitterScraperTweet], Dict[str, Any]]],
+    ]:
         """
         Fetch replies to a specific X (Twitter) post by its post ID.
 
@@ -651,7 +689,9 @@ class Desearch:
             "GET", url, params=params, include_metadata=include_metadata
         )
         data, metadata = self._split_response(result, include_metadata)
-        return self._with_metadata(WebSearchResultsResponse(**data), metadata, include_metadata)
+        return self._with_metadata(
+            WebSearchResultsResponse(**data), metadata, include_metadata
+        )
 
     async def web_crawl(
         self,
@@ -682,14 +722,19 @@ class Desearch:
         client = await self._ensure_session()
         try:
             async with client.request(
-                "GET", request_url, params=params, timeout=aiohttp.ClientTimeout(total=120)
+                "GET",
+                request_url,
+                params=params,
+                timeout=aiohttp.ClientTimeout(total=120),
             ) as response:
                 response.raise_for_status()
                 metadata = self._extract_cost_metadata(response.headers)
                 data = await response.text()
                 return self._with_metadata(data, metadata, include_metadata)
         except aiohttp.ClientResponseError as e:
-            logger.error("HTTP error %s for GET %s: %s", e.status, request_url, e.message)
+            logger.error(
+                "HTTP error %s for GET %s: %s", e.status, request_url, e.message
+            )
             raise
         except aiohttp.ClientError as e:
             logger.error("Client error for GET %s: %s", request_url, str(e))
