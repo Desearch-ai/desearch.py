@@ -57,17 +57,21 @@ AI-powered multi-source contextual search. Searches across web, X (Twitter), Red
 | `tools`                  | `List[str]`     | Yes      | —                          | List of tools to search with (e.g. `web`, `twitter`, `reddit`, `hackernews`, `youtube`, `wikipedia`, `arxiv`) |
 | `start_date`             | `Optional[str]` | No       | `None`                     | Start date in UTC (YYYY-MM-DDTHH:MM:SSZ)                                                                      |
 | `end_date`               | `Optional[str]` | No       | `None`                     | End date in UTC (YYYY-MM-DDTHH:MM:SSZ)                                                                        |
-| `date_filter`            | `Optional[str]` | No       | `PAST_24_HOURS`            | Predefined date filter for search results                                                                     |
+| `date_filter`            | `Optional[str]` | No       | `None`                     | Deprecated relative window; the API translates it to `start_date`/`end_date`                                  |
 | `result_type`            | `Optional[str]` | No       | `LINKS_WITH_FINAL_SUMMARY` | Result type (`ONLY_LINKS` or `LINKS_WITH_FINAL_SUMMARY`)                                                      |
 | `system_message`         | `Optional[str]` | No       | `None`                     | System message for the search                                                                                 |
 | `scoring_system_message` | `Optional[str]` | No       | `None`                     | System message for scoring the response                                                                       |
+| `include_domains`        | `Optional[List[str]]` | No  | `None`                     | Restrict Web Search results to these domains                                                                  |
+| `exclude_domains`        | `Optional[List[str]]` | No  | `None`                     | Drop Web Search results from these domains                                                                    |
 | `count`                  | `Optional[int]` | No       | `None`                     | Number of results per source (10–200)                                                                         |
 
 ```python
 result = await desearch.ai_search(
     prompt="Bittensor",
-    tools=["web", "hackernews", "reddit", "wikipedia", "youtube", "twitter", "arxiv"],
-    date_filter="PAST_24_HOURS",
+    tools=["web"],
+    start_date="2025-05-01T00:00:00Z",
+    end_date="2025-05-08T00:00:00Z",
+    include_domains=["bbc.com", "reuters.com"],
     result_type="LINKS_WITH_FINAL_SUMMARY",
     count=20,
 )

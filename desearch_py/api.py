@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, AsyncIterator, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
 import aiohttp
 
@@ -82,7 +82,9 @@ class Desearch:
                 response.raise_for_status()
                 return await response.json()
         except aiohttp.ClientResponseError as e:
-            logger.error("HTTP error %s for %s %s: %s", e.status, method, url, e.message)
+            logger.error(
+                "HTTP error %s for %s %s: %s", e.status, method, url, e.message
+            )
             raise
         except aiohttp.ClientError as e:
             logger.error("Client error for %s %s: %s", method, url, str(e))
@@ -94,10 +96,12 @@ class Desearch:
         tools: List[str],
         start_date: Optional[str] = None,
         end_date: Optional[str] = None,
-        date_filter: Optional[str] = "PAST_24_HOURS",
+        date_filter: Optional[str] = None,
         result_type: Optional[str] = "LINKS_WITH_FINAL_SUMMARY",
         system_message: Optional[str] = None,
         scoring_system_message: Optional[str] = None,
+        include_domains: Optional[List[str]] = None,
+        exclude_domains: Optional[List[str]] = None,
         count: Optional[int] = None,
     ) -> Union[ResponseData, Dict[str, Any]]:
         """
@@ -108,10 +112,12 @@ class Desearch:
             tools (List[str]): List of tools to search with (e.g. web, twitter, reddit).
             start_date (Optional[str]): Start date in UTC (YYYY-MM-DDTHH:MM:SSZ).
             end_date (Optional[str]): End date in UTC (YYYY-MM-DDTHH:MM:SSZ).
-            date_filter (Optional[str]): Predefined date filter for search results.
+            date_filter (Optional[str]): Deprecated relative window; the API translates it to start_date/end_date. Prefer start_date/end_date.
             result_type (Optional[str]): Result type (ONLY_LINKS or LINKS_WITH_FINAL_SUMMARY).
             system_message (Optional[str]): System message for the search.
             scoring_system_message (Optional[str]): System message for scoring the response.
+            include_domains (Optional[List[str]]): Restrict Web Search results to these domains.
+            exclude_domains (Optional[List[str]]): Drop Web Search results from these domains.
             count (Optional[int]): Number of results to return per source (10-200).
 
         Returns:
@@ -130,6 +136,8 @@ class Desearch:
                 "result_type": result_type,
                 "system_message": system_message,
                 "scoring_system_message": scoring_system_message,
+                "include_domains": include_domains,
+                "exclude_domains": exclude_domains,
                 "count": count,
             }.items()
             if v is not None
@@ -547,12 +555,17 @@ class Desearch:
         client = await self._ensure_session()
         try:
             async with client.request(
-                "GET", request_url, params=params, timeout=aiohttp.ClientTimeout(total=120)
+                "GET",
+                request_url,
+                params=params,
+                timeout=aiohttp.ClientTimeout(total=120),
             ) as response:
                 response.raise_for_status()
                 return await response.text()
         except aiohttp.ClientResponseError as e:
-            logger.error("HTTP error %s for GET %s: %s", e.status, request_url, e.message)
+            logger.error(
+                "HTTP error %s for GET %s: %s", e.status, request_url, e.message
+            )
             raise
         except aiohttp.ClientError as e:
             logger.error("Client error for GET %s: %s", request_url, str(e))
