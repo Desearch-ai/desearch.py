@@ -70,20 +70,20 @@ Consequence:
 
 This keeps the repo small, but it also means the same timeout and JSON expectations are applied broadly.
 
-### 4. Two methods intentionally bypass the shared helper
+### 4. Specialized response helpers handle non-JSON endpoints
 
-`x_posts_by_urls()` and `web_crawl()` build direct `client.request(...)` calls instead of delegating to `_handle_request()`.
+`x_posts_by_urls()` builds a direct `client.request(...)` call, while `extract()` and `web_crawl()` share `_handle_text_request()` instead of delegating to the JSON-oriented `_handle_request()`.
 
 Why that appears to exist in the current code:
 
 - `x_posts_by_urls()` needs repeated `urls` query params expressed as a tuple list
-- `web_crawl()` returns `response.text()` instead of JSON
+- the extraction endpoints return `response.text()` instead of JSON
 
 Tradeoff:
 
 - these methods can support their special request shapes cleanly
-- request/error logic is duplicated, so future transport changes must be updated in more than one place
-- both paths still parse the same optional response cost metadata when callers pass `include_metadata=True`
+- text extraction logic is shared between the canonical and legacy route methods
+- all specialized paths still parse the same optional response cost metadata when callers pass `include_metadata=True`
 
 ## Data model design
 
@@ -106,7 +106,7 @@ That pattern shows the SDK favors resilience over rigid typing for unstable or m
 
 ### Optional response metadata wrapper
 
-Every public endpoint keeps its existing default return shape. For example, `await client.web_crawl(url="https://desearch.ai")` still returns raw text and `await client.x_search(query="desearch")` still returns the parsed tweet list or raw dictionary.
+Every public endpoint keeps its existing default return shape. For example, `await client.extract(url="https://desearch.ai")` and the legacy `await client.web_crawl(url="https://desearch.ai")` both return raw text, while `await client.x_search(query="desearch")` returns the parsed tweet list or raw dictionary.
 
 Callers that pass `include_metadata=True` receive `DesearchResponse[data, metadata]` instead. The `data` field contains the same payload the method would have returned by default, and `metadata` is parsed from the same response headers: `X-Desearch-Cost-Usd` (for example `0.00015`), `X-Desearch-Usage-Count`, `X-Desearch-Service`, and `X-Desearch-Currency`. Numeric parse failures become `None` so successful API responses are not turned into SDK errors.
 
@@ -130,8 +130,8 @@ Practical effect:
 
 The repo keeps both Poetry and setuptools metadata:
 
-- `pyproject.toml` names the package `desearch-py` and declares version `1.2.1`
-- `setup.py` packages the import module `desearch_py` and also declares version `1.2.1`
+- `pyproject.toml` names the package `desearch-py` and declares version `1.3.0`
+- `setup.py` packages the import module `desearch_py` and also declares version `1.3.0`
 
 This dual-metadata setup supports multiple install flows, but it creates a maintenance obligation: version and dependency drift between the two files would be a release bug.
 

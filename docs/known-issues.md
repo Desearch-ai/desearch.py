@@ -66,7 +66,7 @@ Wrap SDK calls in caller-side retry logic with bounded backoff.
 
 **What happens**
 
-The SDK hardcodes `aiohttp.ClientTimeout(total=120)` in `_handle_request()`, `x_posts_by_urls()`, and `web_crawl()`.
+The SDK hardcodes `aiohttp.ClientTimeout(total=120)` in `_handle_request()`, `_handle_text_request()`, and `x_posts_by_urls()`.
 
 **Why unresolved**
 
@@ -74,7 +74,7 @@ Timeout configuration is not exposed on the client or individual methods.
 
 **Impact**
 
-Long-running crawl or search calls cannot be tuned per environment.
+Long-running extraction or search calls cannot be tuned per environment.
 
 **Workaround**
 
@@ -98,11 +98,11 @@ Consumers must manage cursors manually across multiple requests.
 
 Persist `next_cursor` from each response and pass it into the next request yourself.
 
-## 6. `web_crawl()` returns raw text only
+## 6. Extraction methods return raw text only
 
 **What happens**
 
-`web_crawl()` returns `response.text()` directly, not a typed model.
+`extract()` and the legacy `web_crawl()` method return `response.text()` directly, not a typed model.
 
 **Why unresolved**
 
@@ -116,15 +116,15 @@ Callers must parse returned content themselves.
 
 Treat the response as raw HTML or text and parse it in application code.
 
-## 7. Request logic is duplicated in two special-case methods
+## 7. Specialized request paths still require coordinated transport updates
 
 **What happens**
 
-`x_posts_by_urls()` and `web_crawl()` bypass `_handle_request()` and duplicate direct request and error-handling code.
+`x_posts_by_urls()` and `_handle_text_request()` bypass the JSON-oriented `_handle_request()` for their special response and parameter shapes.
 
 **Why unresolved**
 
-Each method needs a slightly different transport path, one for repeated query params and one for text responses.
+The SDK needs different transport paths for repeated query parameters, JSON responses, and text responses.
 
 **Impact**
 
@@ -161,6 +161,6 @@ Use `README.md` and the Markdown files in `docs/` as the current documentation s
 | No retry/backoff | Medium | Retry in caller |
 | Fixed 120 second timeout | Low | Control timeout behavior at the caller layer |
 | No pagination helpers | Low | Manually reuse cursor values |
-| `web_crawl()` returns raw text | Low | Parse returned content yourself |
-| Duplicated request logic | Low | Audit special-case methods during transport changes |
+| Extraction methods return raw text | Low | Parse returned content yourself |
+| Specialized request paths | Low | Audit special-case methods during transport changes |
 | Legacy Sphinx branding | Info | Ignore `docs/_build/` as a source of truth |

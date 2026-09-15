@@ -131,6 +131,43 @@ class ResponseMetadataTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(crawl_result.data, "content")
         self.assertEqual(crawl_result.metadata.service, "crawl")
 
+    async def test_extract_uses_canonical_route_and_web_crawl_stays_compatible(self):
+        client = self.make_client(
+            FakeResponse(text_data="canonical content"),
+            FakeResponse(text_data="legacy content"),
+        )
+
+        extract_result = await client.extract(
+            url="https://desearch.ai", format="text", js=True, wait=250
+        )
+        legacy_result = await client.web_crawl(
+            url="https://desearch.ai", format="html"
+        )
+
+        self.assertEqual(extract_result, "canonical content")
+        self.assertEqual(legacy_result, "legacy content")
+        self.assertEqual(
+            client.client.requests[0][0:2],
+            ("GET", "https://example.test/web/extract"),
+        )
+        self.assertEqual(
+            client.client.requests[0][2]["params"],
+            {
+                "url": "https://desearch.ai",
+                "format": "text",
+                "js": "true",
+                "wait": 250,
+            },
+        )
+        self.assertEqual(
+            client.client.requests[1][0:2],
+            ("GET", "https://example.test/web/crawl"),
+        )
+        self.assertEqual(
+            client.client.requests[1][2]["params"],
+            {"url": "https://desearch.ai", "format": "html"},
+        )
+
     async def test_legacy_cents_header_is_not_treated_as_canonical_usd_metadata(self):
         client = self.make_client(
             FakeResponse(

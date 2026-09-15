@@ -154,6 +154,36 @@ class Desearch:
             logger.error("Client error for %s %s: %s", method, url, str(e))
             raise
 
+    async def _handle_text_request(
+        self,
+        path: str,
+        *,
+        params: Dict[str, Any],
+        include_metadata: bool = False,
+    ) -> Union[str, DesearchResponse[str]]:
+        """Send a GET request for an endpoint that returns text or HTML."""
+        request_url = f"{self.base_url}{path}"
+        client = await self._ensure_session()
+        try:
+            async with client.request(
+                "GET",
+                request_url,
+                params=params,
+                timeout=aiohttp.ClientTimeout(total=120),
+            ) as response:
+                response.raise_for_status()
+                metadata = self._extract_cost_metadata(response.headers)
+                data = await response.text()
+                return self._with_metadata(data, metadata, include_metadata)
+        except aiohttp.ClientResponseError as e:
+            logger.error(
+                "HTTP error %s for GET %s: %s", e.status, request_url, e.message
+            )
+            raise
+        except aiohttp.ClientError as e:
+            logger.error("Client error for GET %s: %s", request_url, str(e))
+            raise
+
     async def ai_search(
         self,
         prompt: str,
@@ -693,6 +723,41 @@ class Desearch:
             WebSearchResultsResponse(**data), metadata, include_metadata
         )
 
+    async def extract(
+        self,
+        url: str,
+        format: Optional[str] = "text",
+        js: bool = False,
+        wait: Optional[int] = None,
+        *,
+        include_metadata: bool = False,
+    ) -> Union[str, DesearchResponse[str]]:
+        """Extract a URL through the canonical ``GET /web/extract`` endpoint.
+
+        Args:
+            url (str): Public URL to extract content from.
+            format (Optional[str]): Output format (``html`` or ``text``).
+            js (bool): Render JavaScript before extraction.
+            wait (Optional[int]): Extra post-load wait in milliseconds when
+                JavaScript rendering is enabled.
+
+        Returns:
+            str: The extracted content, optionally wrapped with response metadata.
+        """
+        params = {
+            k: v
+            for k, v in {
+                "url": url,
+                "format": format,
+                "js": "true" if js else "false",
+                "wait": wait,
+            }.items()
+            if v is not None
+        }
+        return await self._handle_text_request(
+            "/web/extract", params=params, include_metadata=include_metadata
+        )
+
     async def web_crawl(
         self,
         url: str,
@@ -701,16 +766,19 @@ class Desearch:
         include_metadata: bool = False,
     ) -> Union[str, DesearchResponse[str]]:
         """
-        Crawl a URL and return its content as plain text or HTML.
+        Crawl a URL through the deprecated ``GET /web/crawl`` compatibility route.
+
+        Use :meth:`extract` for new integrations. This method remains fully
+        functional for existing clients during the migration.
 
         Args:
             url (str): URL to crawl.
-            format (Optional[str]): Format of content ('html' or 'text'). Defaults to 'text'.
+            format (Optional[str]): Format of content ('html' or 'text').
+                Defaults to 'text'.
 
         Returns:
             str: The crawled content.
         """
-        request_url = f"{self.base_url}/web/crawl"
         params = {
             k: v
             for k, v in {
@@ -719,23 +787,6 @@ class Desearch:
             }.items()
             if v is not None
         }
-        client = await self._ensure_session()
-        try:
-            async with client.request(
-                "GET",
-                request_url,
-                params=params,
-                timeout=aiohttp.ClientTimeout(total=120),
-            ) as response:
-                response.raise_for_status()
-                metadata = self._extract_cost_metadata(response.headers)
-                data = await response.text()
-                return self._with_metadata(data, metadata, include_metadata)
-        except aiohttp.ClientResponseError as e:
-            logger.error(
-                "HTTP error %s for GET %s: %s", e.status, request_url, e.message
-            )
-            raise
-        except aiohttp.ClientError as e:
-            logger.error("Client error for GET %s: %s", request_url, str(e))
-            raise
+        return await self._handle_text_request(
+            "/web/crawl", params=params, include_metadata=include_metadata
+        )

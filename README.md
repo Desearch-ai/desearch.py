@@ -2,7 +2,7 @@
 
 Official async Python SDK for the Desearch API.
 
-`desearch-py` is a thin `aiohttp` client for the Desearch public API. It wraps search, X, and crawl endpoints behind a single async client class and returns `pydantic` models for most successful responses. The package metadata currently reports **version 1.2.1** and requires **Python 3.9+**.
+`desearch-py` is a thin `aiohttp` client for the Desearch public API. It wraps search, X, and extraction endpoints behind a single async client class and returns `pydantic` models for most successful responses. The package metadata currently reports **version 1.3.0** and requires **Python 3.9+**.
 
 ## Package purpose
 
@@ -151,7 +151,19 @@ A minimal unittest suite covers response metadata behavior. There is still no de
 ### Web endpoints
 
 - `web_search`
-- `web_crawl`
+- `extract` — canonical `GET /web/extract` method
+- `web_crawl` — deprecated compatibility method for `GET /web/crawl`
+
+```python
+content = await client.extract(
+    url="https://desearch.ai",
+    format="text",
+    js=True,
+    wait=250,
+)
+```
+
+Existing `web_crawl()` integrations continue to work through the legacy route. Use `extract()` for new integrations.
 
 ### Typed exports
 
@@ -171,7 +183,7 @@ Key design decisions visible in code:
 - auth is sent as `Authorization: <api_key>` with no `Bearer` prefix
 - most requests share a single helper with a fixed 120 second timeout
 - successful responses can opt in to a `DesearchResponse` wrapper with parsed cost metadata from response headers
-- `x_posts_by_urls` and `web_crawl` bypass that shared helper and make direct requests, but still support the metadata wrapper
+- `x_posts_by_urls` and the extraction methods use specialized request paths for repeated query parameters and text responses, while still supporting the metadata wrapper
 - some endpoints fall back to raw `dict` values instead of failing model parsing
 - `ai_search` always sends `"streaming": False`
 
