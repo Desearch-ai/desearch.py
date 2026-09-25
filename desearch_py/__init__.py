@@ -1,4 +1,6 @@
 from .api import Desearch
+
+__version__ = "1.3.0"
 from .models import (
     DateFilter,
     DesearchCostMetadata,
@@ -53,6 +55,7 @@ from .models import (
 
 __all__ = [
     "Desearch",
+    "__version__",
     "DateFilter",
     "DesearchCostMetadata",
     "DesearchResponse",

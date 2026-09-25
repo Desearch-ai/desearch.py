@@ -118,7 +118,7 @@ Dependencies declared in source:
 | Run tests | `poetry run python -m unittest discover -s tests -v` | Uses the stdlib unittest runner |
 | Build Sphinx docs | `make -C docs html` | Requires Sphinx dev deps |
 
-A minimal unittest suite covers response metadata behavior. There is still no dedicated lint or format command configured in the repo.
+The unittest suite covers response metadata and `extract()` request shape, parameters, and HTTP errors. There is still no dedicated lint or format command configured in the repo.
 
 ## Tech stack
 

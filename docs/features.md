@@ -104,6 +104,7 @@ The SDK exposes one async client class, `Desearch`, plus a large set of typed mo
 | Poetry metadata in `pyproject.toml` | ✅ | Declares package name `desearch-py`, version `1.3.0`, and runtime deps. |
 | setuptools metadata in `setup.py` | ✅ | Declares import package `desearch_py`, version `1.3.0`, and package data. |
 | Version parity between Poetry and setuptools | ✅ | Both files currently declare `1.3.0`. |
+| Runtime `__version__` | ✅ | `desearch_py.__version__` is `1.3.0`. |
 | Sphinx source files | ✅ | `docs/conf.py`, `docs/index.rst`, `docs/Makefile`, and `docs/make.bat` are present. |
 | Sphinx branding correctness | ❌ | `docs/conf.py` and generated `docs/_build/` still carry legacy `datura-py` / `Leva` metadata. |
 
@@ -114,6 +115,6 @@ The SDK exposes one async client class, `Desearch`, plus a large set of typed mo
 | Client lifecycle | 5 | 0 | 0 | 0 |
 | AI search | 2 | 1 | 1 | 0 |
 | X / Twitter | 3 | 6 | 0 | 0 |
-| Web | 1 | 1 | 0 | 0 |
+| Web | 2 | 1 | 0 | 0 |
 | Models / exports | 4 | 0 | 1 | 0 |
-| Packaging / docs tooling | 4 | 0 | 1 | 0 |
+| Packaging / docs tooling | 5 | 0 | 1 | 0 |

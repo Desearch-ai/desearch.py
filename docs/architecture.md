@@ -132,6 +132,7 @@ The repo keeps both Poetry and setuptools metadata:
 
 - `pyproject.toml` names the package `desearch-py` and declares version `1.3.0`
 - `setup.py` packages the import module `desearch_py` and also declares version `1.3.0`
+- `desearch_py.__version__` reports the same `1.3.0` string at runtime
 
 This dual-metadata setup supports multiple install flows, but it creates a maintenance obligation: version and dependency drift between the two files would be a release bug.
 
