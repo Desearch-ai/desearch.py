@@ -189,6 +189,17 @@ Key design decisions visible in code:
 
 ## Usage notes
 
+### HTTP error compatibility contract
+
+Every public SDK method raises `DesearchAPIError` for an HTTP 4xx or 5xx response. The exception exposes:
+
+- `status`: the integer HTTP status code
+- `message`: the HTTP reason phrase
+- `body`: the response body as text, whether it is JSON, non-JSON text, or an empty string
+- `args`: `(status, message, body)` for callers that inspect standard exception arguments
+
+The API key is redacted from `message`, `body`, `str(error)`, `repr(error)`, `error.args`, and SDK error logs. An underlying `aiohttp.ClientResponseError` is not retained as the exception cause or context because its request headers may contain the API key.
+
 ### Use `async with` when possible
 
 ```python
