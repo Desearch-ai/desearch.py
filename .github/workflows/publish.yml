@@ -4,30 +4,150 @@ on:
   push:
     branches:
       - main  # Change this to your desired branch
+  workflow_dispatch:
 
 jobs:
   build:
+    # Manual dispatch of this release branch only. A push to main still
+    # matches the trigger above, but this job does not upload that tree.
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/cursor/fix-api-key-exception-leak-d6b9'
     runs-on: ubuntu-latest
     environment: prod
 
     steps:
     - name: Check out the code
       uses: actions/checkout@v2
+      with:
+        fetch-depth: 0
 
     - name: Set up Python
       uses: actions/setup-python@v2
       with:
-        python-version: '3.x'  # Specify your Python version
+        python-version: '3.x'
 
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
         pip install setuptools wheel twine
 
-    - name: Build and publish
+    - name: Refuse upload unless version is exactly 1.2.2 and the parent includes the key-redaction fix
+      run: |
+        set -euo pipefail
+        FIX=51c5a26328dbe8dc83d98ef1dcd355f9757dfc48
+        PARENT="$(git rev-parse --verify HEAD^)"
+        if ! git merge-base --is-ancestor "$FIX" "$PARENT"; then
+          echo "refusing upload: parent ${PARENT} does not include ${FIX}"
+          exit 1
+        fi
+        if ! git diff --quiet "$FIX" HEAD -- . ':(exclude).github/workflows/publish.yml'; then
+          echo "refusing upload: tree differs from ${FIX} outside the publish workflow"
+          git diff --stat "$FIX" HEAD -- . ':(exclude).github/workflows/publish.yml'
+          exit 1
+        fi
+        python - <<'PY'
+        import ast
+        import pathlib
+        import sys
+
+        def setup_version() -> str:
+            tree = ast.parse(pathlib.Path("setup.py").read_text())
+            found = []
+            for node in ast.walk(tree):
+                if isinstance(node, ast.keyword) and node.arg == "version":
+                    value = node.value
+                    if isinstance(value, ast.Constant) and isinstance(value.value, str):
+                        found.append(value.value)
+            if len(found) != 1:
+                sys.exit(f"refusing upload: expected one setup.py version, found {found!r}")
+            return found[0]
+
+        def poetry_version() -> str:
+            section = None
+            found = []
+            for raw in pathlib.Path("pyproject.toml").read_text().splitlines():
+                line = raw.split("#", 1)[0].strip()
+                if line.startswith("[") and line.endswith("]"):
+                    section = line[1:-1].strip()
+                    continue
+                if section == "tool.poetry" and line.startswith("version"):
+                    value = line.split("=", 1)[1].strip().strip('"').strip("'")
+                    found.append(value)
+            if len(found) != 1:
+                sys.exit(f"refusing upload: expected one pyproject version, found {found!r}")
+            return found[0]
+
+        setup_ver = setup_version()
+        poetry_ver = poetry_version()
+        if setup_ver != "1.2.2" or poetry_ver != "1.2.2":
+            sys.exit(
+                "refusing upload: expected version 1.2.2, "
+                f"setup.py={setup_ver!r} pyproject.toml={poetry_ver!r}"
+            )
+        print("version gate passed: 1.2.2")
+        PY
+        echo "history gate passed: parent includes ${FIX}"
+
+    - name: Build distributions
+      run: python setup.py sdist bdist_wheel
+
+    - name: Refuse upload unless built artifacts are exactly 1.2.2
+      run: |
+        set -euo pipefail
+        python - <<'PY'
+        import sys
+        import tarfile
+        import zipfile
+        from pathlib import Path
+
+        def metadata_texts(path: Path):
+            if path.name.endswith(".tar.gz"):
+                with tarfile.open(path) as archive:
+                    members = [item for item in archive.getmembers() if item.name.endswith("/PKG-INFO")]
+                    if not members:
+                        sys.exit(f"refusing upload: {path.name} has no PKG-INFO")
+                    texts = []
+                    for member in members:
+                        extracted = archive.extractfile(member)
+                        if extracted is None:
+                            sys.exit(f"refusing upload: {path.name} PKG-INFO is unreadable")
+                        texts.append(extracted.read().decode())
+                    return texts
+            if path.suffix == ".whl":
+                with zipfile.ZipFile(path) as archive:
+                    names = [name for name in archive.namelist() if name.endswith(".dist-info/METADATA")]
+                    if len(names) != 1:
+                        sys.exit(f"refusing upload: {path.name} has {len(names)} METADATA files")
+                    return [archive.read(names[0]).decode()]
+            sys.exit(f"refusing upload: unexpected artifact {path.name}")
+
+        def field(text: str, label: str):
+            return [
+                line.split(":", 1)[1].strip()
+                for line in text.splitlines()
+                if line.startswith(label + ":")
+            ]
+
+        files = sorted(path for path in Path("dist").iterdir() if path.is_file())
+        sdists = [path for path in files if path.name.endswith(".tar.gz")]
+        wheels = [path for path in files if path.name.endswith(".whl")]
+        if len(files) != 2 or len(sdists) != 1 or len(wheels) != 1:
+            sys.exit(f"refusing upload: expected one sdist and one wheel, found {[path.name for path in files]!r}")
+        for path in files:
+            if "1.2.1" in path.name or "1.3.0" in path.name or "1.2.2" not in path.name:
+                sys.exit(f"refusing upload: artifact filename is not 1.2.2: {path.name}")
+            texts = metadata_texts(path)
+            for text in texts:
+                versions = field(text, "Version")
+                names = field(text, "Name")
+                if versions != ["1.2.2"]:
+                    sys.exit(f"refusing upload: {path.name} version is {versions!r}")
+                if len(names) != 1 or names[0].replace("_", "-") != "desearch-py":
+                    sys.exit(f"refusing upload: {path.name} name is {names!r}")
+        print("artifact gate passed:", ", ".join(path.name for path in files))
+        PY
+
+    - name: Publish to PyPI
       env:
         TWINE_USERNAME: ${{ secrets.PYPI_USERNAME }}
         TWINE_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
-      run: |
-        python setup.py sdist bdist_wheel
-        twine upload dist/*
+      run: twine upload dist/*
