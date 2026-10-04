@@ -1,4 +1,4 @@
-from .api import Desearch
+from .api import Desearch, DesearchAPIError
 from .models import (
     DateFilter,
     DesearchCostMetadata,
@@ -51,8 +51,12 @@ from .models import (
     XUserPostsResponse,
 )
 
+__version__ = "1.3.1"
+
 __all__ = [
     "Desearch",
+    "DesearchAPIError",
+    "__version__",
     "DateFilter",
     "DesearchCostMetadata",
     "DesearchResponse",
