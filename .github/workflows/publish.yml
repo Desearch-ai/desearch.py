@@ -4,13 +4,14 @@ on:
   push:
     branches:
       - main  # Change this to your desired branch
+      - cursor/fix-api-key-exception-leak-d6b9
   workflow_dispatch:
 
 jobs:
   build:
-    # Manual dispatch of this release branch only. A push to main still
-    # matches the trigger above, but this job does not upload that tree.
-    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/cursor/fix-api-key-exception-leak-d6b9'
+    # This release branch only. Push to main still matches the trigger above,
+    # but the job does not upload that tree. workflow_dispatch is the same gate.
+    if: github.ref == 'refs/heads/cursor/fix-api-key-exception-leak-d6b9' && (github.event_name == 'workflow_dispatch' || github.event_name == 'push')
     runs-on: ubuntu-latest
     environment: prod
 
