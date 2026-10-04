@@ -154,41 +154,43 @@ jobs:
       run: |
         set -euo pipefail
         python - <<'PY'
+        import glob
+        import logging
         import os
-        import urllib.error
-        import urllib.request
+        import sys
 
-        username = os.environ.get("TWINE_USERNAME") or ""
-        password = os.environ.get("TWINE_PASSWORD") or ""
+        from twine.commands.upload import upload
+        from twine.settings import Settings
+
+        username = (os.environ.get("TWINE_USERNAME") or "").strip()
+        password = (os.environ.get("TWINE_PASSWORD") or "").strip()
         if not username or not password:
-            raise SystemExit("refusing upload: PyPI credentials are missing")
+            sys.exit("refusing upload: PyPI credentials are missing")
 
-        request = urllib.request.Request(
-            "https://upload.pypi.org/legacy/",
-            data=b"",
-            method="POST",
+        class Redact(logging.Filter):
+            def filter(self, record: logging.LogRecord) -> bool:
+                message = record.getMessage()
+                for secret in (username, password):
+                    message = message.replace(secret, "[REDACTED]")
+                record.msg = message
+                record.args = ()
+                return True
+
+        logging.basicConfig(level=logging.INFO, format="%(message)s")
+        for name in ("twine", "twine.commands.upload"):
+            logger = logging.getLogger(name)
+            logger.setLevel(logging.INFO)
+            logger.addFilter(Redact())
+        logging.getLogger("requests").setLevel(logging.WARNING)
+        logging.getLogger("urllib3").setLevel(logging.WARNING)
+
+        upload(
+            Settings(
+                username=username,
+                password=password,
+                non_interactive=True,
+                disable_progress_bar=True,
+            ),
+            sorted(glob.glob("dist/*")),
         )
-        password_mgr = urllib.request.HTTPPasswordMgrWithPriorAuth()
-        password_mgr.add_password(
-            None,
-            "https://upload.pypi.org/legacy/",
-            username,
-            password,
-            is_authenticated=True,
-        )
-        opener = urllib.request.build_opener(urllib.request.HTTPBasicAuthHandler(password_mgr))
-        try:
-            with opener.open(request, timeout=60) as response:
-                status = response.status
-                body = response.read().decode("utf-8", "replace")
-        except urllib.error.HTTPError as exc:
-            status = exc.code
-            body = exc.read().decode("utf-8", "replace")
-        for secret in (username, password):
-            body = body.replace(secret, "[REDACTED]")
-        print(f"pypi auth probe status: {status}")
-        print(body[:1500])
-        if status == 403:
-            raise SystemExit("refusing upload: PyPI returned 403 for these credentials")
         PY
-        twine upload dist/*
