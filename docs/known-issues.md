@@ -48,7 +48,7 @@ Check types at runtime before accessing model attributes.
 
 **What happens**
 
-The shared request path performs one request attempt and re-raises transport or HTTP errors.
+The shared request path performs one request attempt. HTTP errors are raised as `DesearchAPIError` (status, reason, and response body, without request headers). Transport errors are still propagated to the caller.
 
 **Why unresolved**
 
@@ -66,7 +66,7 @@ Wrap SDK calls in caller-side retry logic with bounded backoff.
 
 **What happens**
 
-The SDK hardcodes `aiohttp.ClientTimeout(total=120)` in `_handle_request()`, `_handle_text_request()`, and `x_posts_by_urls()`.
+The SDK hardcodes `aiohttp.ClientTimeout(total=120)` in `_exchange()`, which `_handle_request()`, `_handle_text_request()`, and `x_posts_by_urls()` all use.
 
 **Why unresolved**
 
@@ -120,15 +120,15 @@ Treat the response as raw HTML or text and parse it in application code.
 
 **What happens**
 
-`x_posts_by_urls()` and `_handle_text_request()` bypass the JSON-oriented `_handle_request()` for their special response and parameter shapes.
+`x_posts_by_urls()` and `_handle_text_request()` (`extract` and `web_crawl`) bypass the JSON wrapper `_handle_request()` for their special response and parameter shapes. HTTP failures from all three paths go through `_exchange()` and are raised as `DesearchAPIError`.
 
 **Why unresolved**
 
-The SDK needs different transport paths for repeated query parameters, JSON responses, and text responses.
+The SDK needs different success-path parsing for repeated query parameters, JSON responses, and text responses.
 
 **Impact**
 
-Future transport-level changes can drift if contributors update `_handle_request()` but forget the duplicated paths.
+Success-path parsing is still separate. HTTP error handling is shared, so an API key in request headers is not copied onto the raised error.
 
 **Workaround**
 

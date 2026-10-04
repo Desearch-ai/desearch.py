@@ -59,20 +59,20 @@ Consequence:
 
 ### 3. Most methods share one request path
 
-`_handle_request()` is the common path for most endpoints. It centralizes:
+`_handle_request()` is the common path for most JSON endpoints. It delegates to `_exchange()`, which centralizes:
 
 - session acquisition
 - a hardcoded `aiohttp.ClientTimeout(total=120)`
-- `response.raise_for_status()`
+- HTTP failures as `DesearchAPIError` (status, reason, and response body only; request headers are not attached)
 - JSON decoding
 - optional cost metadata extraction from `X-Desearch-*` response headers
-- error logging before re-raise
+- error logging before raise
 
 This keeps the repo small, but it also means the same timeout and JSON expectations are applied broadly.
 
 ### 4. Specialized response helpers handle non-JSON endpoints
 
-`x_posts_by_urls()` builds a direct `client.request(...)` call, while `extract()` and `web_crawl()` share `_handle_text_request()` instead of delegating to the JSON-oriented `_handle_request()`.
+`x_posts_by_urls()` calls `_exchange()` with repeated `urls` query params. `extract()` and `web_crawl()` share `_handle_text_request()`, which calls `_exchange(..., as_text=True)` instead of the JSON-oriented `_handle_request()`.
 
 Why that appears to exist in the current code:
 
@@ -115,6 +115,7 @@ Callers that pass `include_metadata=True` receive `DesearchResponse[data, metada
 `desearch_py/__init__.py` is the package boundary for consumers. It re-exports:
 
 - `Desearch`
+- `DesearchAPIError`
 - enums such as `Tool`, `WebTool`, `DateFilter`, `ResultType`, `Sort`
 - response models
 - response metadata wrapper models
@@ -130,8 +131,9 @@ Practical effect:
 
 The repo keeps both Poetry and setuptools metadata:
 
-- `pyproject.toml` names the package `desearch-py` and declares version `1.3.0`
-- `setup.py` packages the import module `desearch_py` and also declares version `1.3.0`
+- `pyproject.toml` names the package `desearch-py` and declares version `1.3.1`
+- `setup.py` packages the import module `desearch_py` and also declares version `1.3.1`
+- `desearch_py.__version__` is `1.3.1`
 
 This dual-metadata setup supports multiple install flows, but it creates a maintenance obligation: version and dependency drift between the two files would be a release bug.
 

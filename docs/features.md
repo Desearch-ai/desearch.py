@@ -2,7 +2,7 @@
 
 > Status key: ✅ working · ⚠️ degraded · ❌ broken · 🚧 in progress
 
-This inventory is derived from the current source in `desearch_py/api.py`, `desearch_py/models.py`, `pyproject.toml`, and `setup.py`. Current package version: **1.3.0**.
+This inventory is derived from the current source in `desearch_py/api.py`, `desearch_py/models.py`, `pyproject.toml`, and `setup.py`. Current package version: **1.3.1**.
 
 ## Overview
 
@@ -16,7 +16,7 @@ The SDK exposes one async client class, `Desearch`, plus a large set of typed mo
 | Lazy session creation | ✅ | `aiohttp.ClientSession` is created only when first needed. |
 | `async with Desearch(...)` | ✅ | `__aenter__` opens the session, `__aexit__` calls `close()`. |
 | `close()` | ✅ | Closes the underlying session when present. |
-| Shared request helper | ✅ | `_handle_request()` applies a 120 second timeout and JSON parsing. |
+| Shared request helper | ✅ | `_exchange()` applies a 120 second timeout. JSON methods use `_handle_request()`. HTTP failures raise `DesearchAPIError` with status and body only. |
 
 ## AI search features
 
@@ -101,9 +101,9 @@ The SDK exposes one async client class, `Desearch`, plus a large set of typed mo
 
 | Surface | Status | Notes |
 |---|---|---|
-| Poetry metadata in `pyproject.toml` | ✅ | Declares package name `desearch-py`, version `1.3.0`, and runtime deps. |
-| setuptools metadata in `setup.py` | ✅ | Declares import package `desearch_py`, version `1.3.0`, and package data. |
-| Version parity between Poetry and setuptools | ✅ | Both files currently declare `1.3.0`. |
+| Poetry metadata in `pyproject.toml` | ✅ | Declares package name `desearch-py`, version `1.3.1`, and runtime deps. |
+| setuptools metadata in `setup.py` | ✅ | Declares import package `desearch_py`, version `1.3.1`, and package data. |
+| Version parity between Poetry and setuptools | ✅ | `pyproject.toml`, `setup.py`, and `desearch_py.__version__` currently declare `1.3.1`. |
 | Sphinx source files | ✅ | `docs/conf.py`, `docs/index.rst`, `docs/Makefile`, and `docs/make.bat` are present. |
 | Sphinx branding correctness | ❌ | `docs/conf.py` and generated `docs/_build/` still carry legacy `datura-py` / `Leva` metadata. |
 
