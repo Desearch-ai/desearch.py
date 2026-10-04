@@ -24,6 +24,45 @@ logger = logging.getLogger(__name__)
 BASE_URL = "https://api.desearch.ai"
 
 
+class DesearchAPIError(Exception):
+    """HTTP error returned by the Desearch API.
+
+    ``status`` is the HTTP status code and ``body`` is the response body.
+    Request headers, including the API key, are never stored on this error.
+    """
+
+    def __init__(self, status: int, message: str = "", body: str = "") -> None:
+        self.status = status
+        self.message = message
+        self.body = body
+        super().__init__(status, message, body)
+
+    def __str__(self) -> str:
+        text = f"{self.status}, message={self.message!r}"
+        if self.body:
+            text += f", body={self.body!r}"
+        return text
+
+    def __repr__(self) -> str:
+        return (
+            f"{type(self).__name__}(status={self.status!r}, "
+            f"message={self.message!r}, body={self.body!r})"
+        )
+
+
+def _raise_without_chain(exc: BaseException) -> None:
+    """Raise ``exc`` with no ``__cause__`` and no ``__context__``.
+
+    Call this only after the ``except`` block has finished. Raising inside the
+    handler, even with ``from None``, still stores the original error on
+    ``__context__``.
+    """
+    exc.__cause__ = None
+    exc.__context__ = None
+    exc.__suppress_context__ = True
+    raise exc
+
+
 class Desearch:
     """Async Python SDK client for the Desearch API."""
 
@@ -112,6 +151,110 @@ class Desearch:
             )
         return data
 
+    def _redact(self, value: Optional[str]) -> str:
+        text = "" if value is None else str(value)
+        secret = self.api_key
+        if not secret or not text:
+            return text
+        return text.replace(secret, "[REDACTED]")
+
+    def _make_api_error(
+        self,
+        status: int,
+        message: Optional[str],
+        body: Optional[str],
+        method: str,
+        url: str,
+    ) -> DesearchAPIError:
+        safe_message = self._redact(message)
+        safe_body = self._redact(body)
+        logger.error(
+            "HTTP error %s for %s %s: %s",
+            status,
+            method,
+            self._redact(url),
+            safe_message,
+        )
+        return DesearchAPIError(status=status, message=safe_message, body=safe_body)
+
+    async def _read_error_body(self, response: Any) -> str:
+        reader = getattr(response, "text", None)
+        if reader is None:
+            return ""
+        try:
+            body = await reader()
+        except Exception:
+            return ""
+        if body is None:
+            return ""
+        return body if isinstance(body, str) else str(body)
+
+    async def _raise_if_http_error(self, response: Any, method: str, url: str) -> None:
+        """Raise ``DesearchAPIError`` for HTTP statuses >= 400.
+
+        Responses without ``status`` (test doubles) fall back to
+        ``raise_for_status()``. A real aiohttp response always has ``status``,
+        so this path reads the body and never builds ``ClientResponseError``.
+        """
+        status = getattr(response, "status", None)
+        if status is None:
+            response.raise_for_status()
+            return
+        if int(status) < 400:
+            return
+        body = await self._read_error_body(response)
+        reason = getattr(response, "reason", "") or ""
+        _raise_without_chain(
+            self._make_api_error(int(status), str(reason), body, method, url)
+        )
+
+    def _api_error_from_client_response(
+        self, exc: aiohttp.ClientResponseError, method: str, url: str
+    ) -> DesearchAPIError:
+        # ``repr(exc)`` includes request headers. Copy only status and reason.
+        status = int(getattr(exc, "status", 0) or 0)
+        message = getattr(exc, "message", "") or ""
+        return self._make_api_error(status, str(message), "", method, url)
+
+    async def _exchange(
+        self,
+        method: str,
+        url: str,
+        *,
+        as_text: bool = False,
+        **kwargs: Any,
+    ) -> Tuple[Any, DesearchCostMetadata]:
+        """Perform one request. HTTP failures raise ``DesearchAPIError`` with no chain."""
+        client = await self._ensure_session()
+        http_error: Optional[DesearchAPIError] = None
+        try:
+            async with client.request(
+                method, url, timeout=aiohttp.ClientTimeout(total=120), **kwargs
+            ) as response:
+                await self._raise_if_http_error(response, method, url)
+                metadata = self._extract_cost_metadata(response.headers)
+                if as_text:
+                    data = await response.text()
+                else:
+                    data = await response.json()
+                return data, metadata
+        except aiohttp.ClientResponseError as exc:
+            # Raised only when a response has no status and raise_for_status()
+            # built a ClientResponseError. Drop it so the key in its request
+            # headers cannot survive on __cause__ or __context__.
+            http_error = self._api_error_from_client_response(exc, method, url)
+        except aiohttp.ClientError as exc:
+            logger.error(
+                "Client error for %s %s: %s",
+                method,
+                self._redact(url),
+                self._redact(str(exc)),
+            )
+            raise
+        if http_error is None:
+            http_error = DesearchAPIError(status=0, message="HTTP request failed", body="")
+        _raise_without_chain(http_error)
+
     async def _handle_request(
         self,
         method: str,
@@ -133,24 +276,11 @@ class Desearch:
             Any: Parsed JSON response, or DesearchResponse when metadata is requested.
 
         Raises:
-            aiohttp.ClientResponseError: On HTTP error responses.
+            DesearchAPIError: On HTTP error responses. The API key is not included.
             aiohttp.ClientError: On connection-level errors.
         """
-        client = await self._ensure_session()
-        try:
-            async with client.request(
-                method, url, timeout=aiohttp.ClientTimeout(total=120), **kwargs
-            ) as response:
-                response.raise_for_status()
-                metadata = self._extract_cost_metadata(response.headers)
-                data = await response.json()
-                return self._with_metadata(data, metadata, include_metadata)
-        except aiohttp.ClientResponseError as e:
-            logger.error("HTTP error %s for %s %s: %s", e.status, method, url, e.message)
-            raise
-        except aiohttp.ClientError as e:
-            logger.error("Client error for %s %s: %s", method, url, str(e))
-            raise
+        data, metadata = await self._exchange(method, url, **kwargs)
+        return self._with_metadata(data, metadata, include_metadata)
 
     async def ai_search(
         self,
@@ -371,20 +501,7 @@ class Desearch:
         """
         url = f"{self.base_url}/twitter/urls"
         params: List[tuple] = [("urls", u) for u in urls]
-        client = await self._ensure_session()
-        try:
-            async with client.request(
-                "GET", url, params=params, timeout=aiohttp.ClientTimeout(total=120)
-            ) as response:
-                response.raise_for_status()
-                metadata = self._extract_cost_metadata(response.headers)
-                data = await response.json()
-        except aiohttp.ClientResponseError as e:
-            logger.error("HTTP error %s for GET %s: %s", e.status, url, e.message)
-            raise
-        except aiohttp.ClientError as e:
-            logger.error("Client error for GET %s: %s", url, str(e))
-            raise
+        data, metadata = await self._exchange("GET", url, params=params)
         parsed_data = [TwitterScraperTweet(**item) for item in data]
         return self._with_metadata(parsed_data, metadata, include_metadata)
 
@@ -679,18 +796,7 @@ class Desearch:
             }.items()
             if v is not None
         }
-        client = await self._ensure_session()
-        try:
-            async with client.request(
-                "GET", request_url, params=params, timeout=aiohttp.ClientTimeout(total=120)
-            ) as response:
-                response.raise_for_status()
-                metadata = self._extract_cost_metadata(response.headers)
-                data = await response.text()
-                return self._with_metadata(data, metadata, include_metadata)
-        except aiohttp.ClientResponseError as e:
-            logger.error("HTTP error %s for GET %s: %s", e.status, request_url, e.message)
-            raise
-        except aiohttp.ClientError as e:
-            logger.error("Client error for GET %s: %s", request_url, str(e))
-            raise
+        data, metadata = await self._exchange(
+            "GET", request_url, as_text=True, params=params
+        )
+        return self._with_metadata(data, metadata, include_metadata)
