@@ -13,6 +13,7 @@ from .models import (
     Sort,
     Tool,
     TooManyRequestsResponse,
+    TwitterScraperCard,
     TwitterScraperEntities,
     TwitterScraperEntitiesMedia,
     TwitterScraperEntitiesMediaAdditionalInfo,
@@ -51,7 +52,7 @@ from .models import (
     XUserPostsResponse,
 )
 
-__version__ = "1.3.1"
+__version__ = "1.4.0"
 
 __all__ = [
     "Desearch",
@@ -70,6 +71,7 @@ __all__ = [
     "Sort",
     "Tool",
     "TooManyRequestsResponse",
+    "TwitterScraperCard",
     "TwitterScraperEntities",
     "TwitterScraperEntitiesMedia",
     "TwitterScraperEntitiesMediaAdditionalInfo",
