@@ -2,7 +2,7 @@
 
 Official async Python SDK for the Desearch API.
 
-`desearch-py` is a thin `aiohttp` client for the Desearch public API. It wraps search, X, and extraction endpoints behind a single async client class and returns `pydantic` models for most successful responses. The package metadata currently reports **version 1.3.1** and requires **Python 3.9+**.
+`desearch-py` is a thin `aiohttp` client for the Desearch public API. It wraps search, X, and extraction endpoints behind a single async client class and returns `pydantic` models for most successful responses. The package metadata currently reports **version 1.4.0** and requires **Python 3.9+**.
 
 ## Package purpose
 

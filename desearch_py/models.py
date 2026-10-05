@@ -275,6 +275,23 @@ class TwitterScraperUser(BaseModel):
     professional: Optional[TwitterScraperUserProfessional] = None
 
 
+class TwitterScraperCard(BaseModel):
+    """Link preview, video player or live broadcast shown under a tweet."""
+
+    model_config = ConfigDict(extra="allow")
+
+    type: str
+    url: Optional[str] = None
+    title: Optional[str] = None
+    description: Optional[str] = None
+    domain: Optional[str] = None
+    image: Optional[str] = None
+    image_alt: Optional[str] = None
+    player_url: Optional[str] = None
+    broadcast_url: Optional[str] = None
+    state: Optional[str] = None
+
+
 class TwitterScraperTweet(BaseModel):
     model_config = ConfigDict(extra="allow")
 
@@ -304,6 +321,7 @@ class TwitterScraperTweet(BaseModel):
     entities: Optional[TwitterScraperEntities] = None
     extended_entities: Optional[TwitterScraperExtendedEntities] = None
     retweet: Optional[TwitterScraperTweet] = None
+    card: Optional[TwitterScraperCard] = None
 
 
 # ─── Web Search Models ───────────────────────────────────────────────────────
@@ -334,8 +352,6 @@ class WebSearchResultsResponse(BaseModel):
     data: List[WebSearchResultItem]
 
 
-
-
 # ─── Response Metadata Models ────────────────────────────────────────────────
 
 
@@ -353,6 +369,7 @@ class DesearchResponse(BaseModel, Generic[T]):
 
     data: T
     metadata: DesearchCostMetadata
+
 
 # ─── AI Search Response Model ────────────────────────────────────────────────
 
