@@ -34,7 +34,6 @@ The SDK exposes one async client class, `Desearch`, plus a large set of typed mo
 | `hackernews` | Hacker News | ✅ | ✅ |
 | `reddit` | Reddit | ✅ | ✅ |
 | `wikipedia` | Wikipedia | ✅ | ✅ |
-| `youtube` | YouTube | ✅ | ✅ |
 | `arxiv` | arXiv | ✅ | ✅ |
 | `twitter` | X / Twitter | ✅ | ❌ |
 
