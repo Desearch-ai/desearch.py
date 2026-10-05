@@ -15,7 +15,6 @@ class Tool(str, Enum):
     HACKERNEWS = "hackernews"
     REDDIT = "reddit"
     WIKIPEDIA = "wikipedia"
-    YOUTUBE = "youtube"
     TWITTER = "twitter"
     ARXIV = "arxiv"
 
@@ -25,7 +24,6 @@ class WebTool(str, Enum):
     HACKERNEWS = "hackernews"
     REDDIT = "reddit"
     WIKIPEDIA = "wikipedia"
-    YOUTUBE = "youtube"
     ARXIV = "arxiv"
 
 
@@ -320,7 +318,6 @@ class WebSearchResultItem(BaseModel):
 class WebSearchResponse(BaseModel):
     model_config = ConfigDict(extra="allow")
 
-    youtube_search_results: Optional[List[WebSearchResultItem]] = None
     hacker_news_search_results: Optional[List[WebSearchResultItem]] = None
     reddit_search_results: Optional[List[WebSearchResultItem]] = None
     arxiv_search_results: Optional[List[WebSearchResultItem]] = None
@@ -363,7 +360,6 @@ class ResponseData(BaseModel):
     hacker_news_search: Optional[List[Dict[str, Any]]] = None
     reddit_search: Optional[List[Dict[str, Any]]] = None
     search: Optional[List[Dict[str, Any]]] = None
-    youtube_search: Optional[List[Dict[str, Any]]] = None
     tweets: Optional[List[Dict[str, Any]]] = None
     text: Optional[str] = None
     miner_link_scores: Optional[Dict[str, str]] = None
