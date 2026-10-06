@@ -63,7 +63,7 @@ Consequence:
 
 - session acquisition
 - a hardcoded `aiohttp.ClientTimeout(total=120)`
-- HTTP failures as `DesearchAPIError` (status, reason, and response body only; request headers are not attached)
+- HTTP failures as `DesearchAPIError`, a subclass of `aiohttp.ClientResponseError` (status, reason, and response body; `request_info` has empty headers and a URL that does not carry the API key)
 - JSON decoding
 - optional cost metadata extraction from `X-Desearch-*` response headers
 - error logging before raise

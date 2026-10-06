@@ -48,7 +48,7 @@ Check types at runtime before accessing model attributes.
 
 **What happens**
 
-The shared request path performs one request attempt. HTTP errors are raised as `DesearchAPIError` (status, reason, and response body, without request headers). Transport errors are still propagated to the caller.
+The shared request path performs one request attempt. HTTP errors are raised as `DesearchAPIError`, a subclass of `aiohttp.ClientResponseError`, with status, reason, and response body. Its `request_info` headers are empty, and the URL does not carry the API key. Transport errors are still propagated to the caller.
 
 **Why unresolved**
 
@@ -128,7 +128,7 @@ The SDK needs different success-path parsing for repeated query parameters, JSON
 
 **Impact**
 
-Success-path parsing is still separate. HTTP error handling is shared, so an API key in request headers is not copied onto the raised error.
+Success-path parsing is still separate. HTTP error handling is shared. The raised `DesearchAPIError` does not copy request headers, and its URL does not carry the API key.
 
 **Workaround**
 
