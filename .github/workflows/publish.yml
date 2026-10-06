@@ -34,7 +34,7 @@ jobs:
     - name: Refuse upload unless version is exactly 1.2.2 and the parent includes the key-redaction fix
       run: |
         set -euo pipefail
-        FIX=51c5a26328dbe8dc83d98ef1dcd355f9757dfc48
+        FIX=935cca6e0d03af617461024e5ccb0164dfb17d95
         PARENT="$(git rev-parse --verify HEAD^)"
         if ! git merge-base --is-ancestor "$FIX" "$PARENT"; then
           echo "refusing upload: parent ${PARENT} does not include ${FIX}"
