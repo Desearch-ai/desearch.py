@@ -48,7 +48,7 @@ Check types at runtime before accessing model attributes.
 
 **What happens**
 
-The shared request path performs one request attempt and re-raises transport or HTTP errors.
+The shared request path performs one request attempt. HTTP errors are raised as `DesearchAPIError`, a subclass of `aiohttp.ClientResponseError`, with status and response body. Its `request_info` headers are empty, and the URL does not carry the API key. Transport errors are still propagated to the caller.
 
 **Why unresolved**
 
@@ -120,7 +120,7 @@ Treat the response as raw HTML or text and parse it in application code.
 
 **What happens**
 
-`x_posts_by_urls()` and `web_crawl()` bypass `_handle_request()` and duplicate direct request and error-handling code.
+`x_posts_by_urls()` and `web_crawl()` bypass `_handle_request()` and call `_exchange()` directly. HTTP error handling is shared, but the success-path parsing is still separate.
 
 **Why unresolved**
 
@@ -128,7 +128,7 @@ Each method needs a slightly different transport path, one for repeated query pa
 
 **Impact**
 
-Future transport-level changes can drift if contributors update `_handle_request()` but forget the duplicated paths.
+Success-path parsing is still separate. HTTP failures from both methods go through `_exchange()` and are raised as `DesearchAPIError`.
 
 **Workaround**
 

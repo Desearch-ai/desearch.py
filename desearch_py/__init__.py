@@ -1,4 +1,4 @@
-from .api import Desearch
+from .api import Desearch, DesearchAPIError
 from .models import (
     DateFilter,
     DesearchCostMetadata,
@@ -53,6 +53,7 @@ from .models import (
 
 __all__ = [
     "Desearch",
+    "DesearchAPIError",
     "DateFilter",
     "DesearchCostMetadata",
     "DesearchResponse",

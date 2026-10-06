@@ -63,16 +63,16 @@ Consequence:
 
 - session acquisition
 - a hardcoded `aiohttp.ClientTimeout(total=120)`
-- `response.raise_for_status()`
+- HTTP failures raised as `DesearchAPIError`, a subclass of `aiohttp.ClientResponseError` (status and response body; `request_info` has empty headers and a URL that does not carry the API key)
 - JSON decoding
 - optional cost metadata extraction from `X-Desearch-*` response headers
-- error logging before re-raise
+- error logging of status and reason before that SDK error is raised
 
 This keeps the repo small, but it also means the same timeout and JSON expectations are applied broadly.
 
 ### 4. Two methods intentionally bypass the shared helper
 
-`x_posts_by_urls()` and `web_crawl()` build direct `client.request(...)` calls instead of delegating to `_handle_request()`.
+`x_posts_by_urls()` and `web_crawl()` call `_exchange()` instead of `_handle_request()`.
 
 Why that appears to exist in the current code:
 
@@ -82,7 +82,7 @@ Why that appears to exist in the current code:
 Tradeoff:
 
 - these methods can support their special request shapes cleanly
-- request/error logic is duplicated, so future transport changes must be updated in more than one place
+- both methods share `_exchange()` for the request, timeout, and HTTP error handling
 - both paths still parse the same optional response cost metadata when callers pass `include_metadata=True`
 
 ## Data model design
@@ -130,8 +130,8 @@ Practical effect:
 
 The repo keeps both Poetry and setuptools metadata:
 
-- `pyproject.toml` names the package `desearch-py` and declares version `1.2.1`
-- `setup.py` packages the import module `desearch_py` and also declares version `1.2.1`
+- `pyproject.toml` names the package `desearch-py` and declares version `1.2.2`
+- `setup.py` packages the import module `desearch_py` and also declares version `1.2.2`
 
 This dual-metadata setup supports multiple install flows, but it creates a maintenance obligation: version and dependency drift between the two files would be a release bug.
 
@@ -154,7 +154,6 @@ That means contributors should treat the checked source code and Markdown docs a
 The current implementation does **not** include:
 
 - built-in retries or backoff
-- SDK-specific exception classes
 - automatic pagination helpers
 - streaming response handling
 - sync client support
