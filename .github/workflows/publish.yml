@@ -66,6 +66,15 @@ jobs:
                 return None
             return desearch_py.__version__
 
+        def require_code_version(code_version, declared: str) -> None:
+            if code_version is None or not str(code_version).strip():
+                sys.exit("refusing upload: desearch_py.__version__ is missing")
+            if code_version != declared:
+                sys.exit(
+                    "refusing upload: desearch_py.__version__ "
+                    f"{code_version!r} != pyproject.toml {declared!r}"
+                )
+
         def changelog_has_heading(version: str) -> bool:
             path = Path("CHANGELOG.md")
             if not path.is_file():
@@ -119,12 +128,7 @@ jobs:
             return parts[1]
 
         version = poetry_field("version")
-        code_version = package_version()
-        if code_version is not None and code_version != version:
-            sys.exit(
-                "refusing upload: desearch_py.__version__ "
-                f"{code_version!r} != pyproject.toml {version!r}"
-            )
+        require_code_version(package_version(), version)
         if not changelog_has_heading(version):
             sys.exit(f"refusing upload: CHANGELOG.md has no heading for {version}")
 
