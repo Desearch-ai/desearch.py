@@ -16,7 +16,7 @@ The SDK exposes one async client class, `Desearch`, plus a large set of typed mo
 | Lazy session creation | ✅ | `aiohttp.ClientSession` is created only when first needed. |
 | `async with Desearch(...)` | ✅ | `__aenter__` opens the session, `__aexit__` calls `close()`. |
 | `close()` | ✅ | Closes the underlying session when present. |
-| Shared request helper | ✅ | `_exchange()` applies a 120 second timeout. JSON methods use `_handle_request()`. HTTP failures raise `DesearchAPIError` with status and body only. |
+| Shared request helper | ✅ | `_exchange()` applies a 120 second timeout. JSON methods use `_handle_request()`. HTTP failures raise `DesearchAPIError`, a subclass of `aiohttp.ClientResponseError`, with status and body. `request_info` headers are empty. |
 
 ## AI search features
 
