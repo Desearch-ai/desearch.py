@@ -1,4 +1,6 @@
+import inspect
 import traceback
+import types
 import unittest
 
 from aiohttp import ClientResponseError, web
@@ -11,30 +13,130 @@ from desearch_py import Desearch, DesearchAPIError
 
 KEY = "fake-key-for-leak-test"
 
+_SKIP_TYPES = (
+    types.ModuleType,
+    types.FunctionType,
+    types.MethodType,
+    types.BuiltinFunctionType,
+    types.BuiltinMethodType,
+    types.TracebackType,
+    types.FrameType,
+    type,
+)
 
-def _exception_dump(exc: BaseException) -> str:
+
+def _request_info(url: URL, method: str, headers: CIMultiDictProxy) -> RequestInfo:
+    """Construct ``RequestInfo`` whether or not this aiohttp requires ``real_url``."""
+    try:
+        parameters = inspect.signature(RequestInfo).parameters
+    except (TypeError, ValueError):
+        parameters = {}
+    kwargs = {"url": url, "method": method, "headers": headers}
+    if "real_url" in parameters:
+        kwargs["real_url"] = url
+    try:
+        return RequestInfo(**kwargs)
+    except TypeError:
+        if "real_url" in kwargs:
+            kwargs.pop("real_url")
+        else:
+            kwargs["real_url"] = url
+        return RequestInfo(**kwargs)
+
+
+def _recursive_dump(obj: object) -> str:
+    """Stringify an exception chain and the attributes stored on it.
+
+    Traceback frames are not walked into ``f_locals``. The formatted traceback
+    is included separately; frame locals are live caller state, not values the
+    exception stores.
+    """
     chunks = []
-    pending = [exc]
     seen = set()
-    while pending:
-        current = pending.pop()
-        if current is None or id(current) in seen:
-            continue
-        seen.add(id(current))
-        chunks.append(str(current))
-        chunks.append(repr(current))
-        chunks.append(repr(current.args))
-        chunks.append(repr(getattr(current, "__dict__", {})))
-        notes = getattr(current, "__notes__", None)
-        if notes:
-            chunks.append(repr(notes))
-        chunks.append(
-            "".join(
-                traceback.format_exception(type(current), current, current.__traceback__)
+
+    def walk(value: object) -> None:
+        if value is None or isinstance(value, (int, float, bool)):
+            chunks.append(repr(value))
+            return
+        if isinstance(value, (str, bytes)):
+            chunks.append(repr(value))
+            return
+        if isinstance(value, _SKIP_TYPES):
+            return
+        identity = id(value)
+        if identity in seen:
+            return
+        seen.add(identity)
+        try:
+            chunks.append(repr(value))
+        except Exception:
+            chunks.append(f"<unrepr {type(value).__name__}>")
+
+        if isinstance(value, BaseException):
+            chunks.append(str(value))
+            chunks.append(
+                "".join(
+                    traceback.format_exception(type(value), value, value.__traceback__)
+                )
             )
-        )
-        pending.append(current.__cause__)
-        pending.append(current.__context__)
+            walk(value.args)
+            walk(getattr(value, "__dict__", {}))
+            notes = getattr(value, "__notes__", None)
+            if notes:
+                walk(notes)
+            walk(value.__cause__)
+            walk(value.__context__)
+            for name in ("request_info", "headers", "history", "status", "message", "body"):
+                if name in getattr(value, "__dict__", {}):
+                    walk(value.__dict__[name])
+            return
+
+        if isinstance(value, dict):
+            for key, item in value.items():
+                walk(key)
+                walk(item)
+            return
+
+        if isinstance(value, (list, tuple, set, frozenset)):
+            for item in value:
+                walk(item)
+            return
+
+        items = getattr(value, "items", None)
+        if callable(items):
+            try:
+                pairs = list(items())
+            except Exception:
+                pairs = None
+            if pairs is not None:
+                for key, item in pairs:
+                    walk(key)
+                    walk(item)
+
+        raw = getattr(value, "__dict__", None)
+        if isinstance(raw, dict) and raw:
+            walk(raw)
+
+        slots = getattr(type(value), "__slots__", ())
+        if isinstance(slots, str):
+            slots = (slots,)
+        for name in slots or ():
+            if not isinstance(name, str) or name.startswith("__"):
+                continue
+            try:
+                walk(getattr(value, name))
+            except Exception:
+                continue
+
+        fields = getattr(value, "_fields", None)
+        if isinstance(fields, tuple):
+            for name in fields:
+                try:
+                    walk(getattr(value, name))
+                except Exception:
+                    continue
+
+    walk(obj)
     return "\n".join(chunks)
 
 
@@ -69,12 +171,7 @@ class _LeakSession:
 
 def _client_response_error() -> ClientResponseError:
     headers = CIMultiDictProxy(CIMultiDict({"Authorization": KEY}))
-    info = RequestInfo(
-        url=URL("http://example.test/web"),
-        method="GET",
-        headers=headers,
-        real_url=URL("http://example.test/web"),
-    )
+    info = _request_info(URL(f"http://example.test/web?token={KEY}"), "GET", headers)
     return ClientResponseError(
         info,
         (),
@@ -87,16 +184,33 @@ def _client_response_error() -> ClientResponseError:
 class ApiKeyRedactionTests(unittest.IsolatedAsyncioTestCase):
     def assert_key_absent(self, exc: BaseException) -> None:
         self.assertIsInstance(exc, DesearchAPIError)
+        self.assertIsInstance(exc, ClientResponseError)
         self.assertIsNone(exc.__cause__)
         self.assertIsNone(exc.__context__)
-        self.assertFalse(hasattr(exc, "request_info"))
-        self.assertFalse(hasattr(exc, "headers"))
-        self.assertFalse(hasattr(exc, "history"))
-        dump = _exception_dump(exc)
+
+        info = exc.request_info
+        self.assertEqual(list(info.headers.items()), [])
+        self.assertNotIn("Authorization", info.headers)
+        self.assertEqual(exc.history, ())
+        self.assertIsNone(exc.headers)
+        self.assertNotIn(KEY, repr(info))
+        for url in (info.url, info.real_url):
+            self.assertNotIn(KEY, str(url))
+            self.assertNotIn(KEY, repr(url))
+            self.assertEqual(url.query_string, "")
+            for value in url.query.values():
+                self.assertNotIn(KEY, str(value))
+
+        formatted = "".join(
+            traceback.format_exception(type(exc), exc, exc.__traceback__)
+        )
+        dump = _recursive_dump(exc)
         self.assertNotIn(KEY, dump)
+        self.assertNotIn(KEY, formatted)
         self.assertNotIn(KEY, str(exc))
         self.assertNotIn(KEY, repr(exc))
         self.assertNotIn(KEY, repr(exc.args))
+        self.assertNotIn(KEY, repr(exc.__dict__))
 
     async def asyncSetUp(self):
         self.authorizations = []
@@ -124,6 +238,14 @@ class ApiKeyRedactionTests(unittest.IsolatedAsyncioTestCase):
     async def asyncTearDown(self):
         await self.runner.cleanup()
 
+    async def _assert_http_error(self, call):
+        try:
+            await call
+        except ClientResponseError as error:
+            self.assertIsInstance(error, DesearchAPIError)
+            return error
+        self.fail("except aiohttp.ClientResponseError did not catch the error")
+
     async def test_http_403_omits_api_key_on_every_request_path(self):
         client = Desearch(api_key=KEY, base_url=self.base_url)
         calls = (
@@ -133,9 +255,7 @@ class ApiKeyRedactionTests(unittest.IsolatedAsyncioTestCase):
         )
         try:
             for call in calls:
-                with self.assertRaises(DesearchAPIError) as caught:
-                    await call
-                error = caught.exception
+                error = await self._assert_http_error(call)
                 self.assert_key_absent(error)
                 self.assertEqual(error.status, 403)
                 self.assertEqual(error.message, "Forbidden")
@@ -152,12 +272,10 @@ class ApiKeyRedactionTests(unittest.IsolatedAsyncioTestCase):
         self.include_key_in_body = True
         client = Desearch(api_key=KEY, base_url=self.base_url)
         try:
-            with self.assertRaises(DesearchAPIError) as caught:
-                await client.ai_search(prompt="q", tools=["web"])
+            error = await self._assert_http_error(client.ai_search(prompt="q", tools=["web"]))
         finally:
             await client.close()
 
-        error = caught.exception
         self.assert_key_absent(error)
         self.assertEqual(error.status, 403)
         self.assertEqual(error.body, '{"detail":"forbidden [REDACTED]"}')
@@ -167,19 +285,44 @@ class ApiKeyRedactionTests(unittest.IsolatedAsyncioTestCase):
     async def test_client_response_error_is_not_chained(self):
         leaked = _client_response_error()
         self.assertIn(KEY, repr(leaked))
-        client = Desearch(api_key=KEY, base_url="https://example.test")
+        client = Desearch(api_key=KEY, base_url=f"https://example.test/{KEY}?token={KEY}")
         client.client = _LeakSession(_LeakResponse(leaked))
         try:
-            with self.assertRaises(DesearchAPIError) as caught:
-                await client.web_search(query="q")
+            error = await self._assert_http_error(client.web_search(query="q"))
         finally:
             await client.close()
 
-        error = caught.exception
         self.assert_key_absent(error)
         self.assertEqual(error.status, 403)
         self.assertEqual(error.message, "Forbidden")
         self.assertEqual(error.body, "")
+        rendered = str(error.request_info.url)
+        self.assertNotIn(KEY, rendered)
+        self.assertTrue(
+            "[REDACTED]" in rendered or "%5BREDACTED%5D" in rendered,
+            rendered,
+        )
+
+    async def test_query_value_that_carries_the_key_is_not_stored(self):
+        client = Desearch(api_key=KEY, base_url=self.base_url)
+        error = client._make_api_error(
+            403,
+            "Forbidden " + KEY,
+            "see " + KEY,
+            "GET",
+            f"{self.base_url}/{KEY}/web?token={KEY}&q=1#frag-{KEY}",
+        )
+        try:
+            raise error
+        except ClientResponseError as caught:
+            self.assertIs(caught, error)
+        self.assert_key_absent(error)
+        self.assertEqual(error.status, 403)
+        self.assertIn("[REDACTED]", error.message)
+        self.assertIn("[REDACTED]", error.body)
+        self.assertNotIn("token=", str(error.request_info.url))
+        self.assertNotIn("token=", str(error.request_info.real_url))
+        await client.close()
 
 
 if __name__ == "__main__":

@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import inspect
 import logging
 import math
 from typing import Any, Dict, List, Optional, Tuple, Union
+from urllib.parse import quote, quote_plus
 
 import aiohttp
+from aiohttp import ClientResponseError
+from multidict import CIMultiDict, CIMultiDictProxy
+from yarl import URL
 
 from .models import (
     DesearchCostMetadata,
@@ -24,18 +29,73 @@ logger = logging.getLogger(__name__)
 BASE_URL = "https://api.desearch.ai"
 
 
-class DesearchAPIError(Exception):
+def _empty_headers() -> CIMultiDictProxy[str]:
+    """Header mapping with no names and no values."""
+    return CIMultiDictProxy(CIMultiDict())
+
+
+def _request_info(method: str, url: URL) -> aiohttp.RequestInfo:
+    """Build ``RequestInfo`` across aiohttp versions.
+
+    ``real_url`` is a required field on some releases and optional on others
+    (attrs default in 3.8–3.10, sentinel default from 3.11 on). Passing it
+    only when the constructor accepts it keeps a single call site working for
+    every aiohttp allowed by this package.
+    """
+    headers = _empty_headers()
+    try:
+        parameters = inspect.signature(aiohttp.RequestInfo).parameters
+    except (TypeError, ValueError):
+        parameters = {}
+    kwargs: Dict[str, Any] = {"url": url, "method": method, "headers": headers}
+    if "real_url" in parameters:
+        kwargs["real_url"] = url
+    try:
+        return aiohttp.RequestInfo(**kwargs)
+    except TypeError:
+        if "real_url" in kwargs:
+            kwargs.pop("real_url")
+        else:
+            kwargs["real_url"] = url
+        return aiohttp.RequestInfo(**kwargs)
+
+
+def _blank_request_info() -> aiohttp.RequestInfo:
+    return _request_info("GET", URL(""))
+
+
+class DesearchAPIError(ClientResponseError):
     """HTTP error returned by the Desearch API.
 
+    This is an ``aiohttp.ClientResponseError``, so ``except
+    aiohttp.ClientResponseError`` and ``.status`` keep working.
+
     ``status`` is the HTTP status code and ``body`` is the response body.
-    Request headers, including the API key, are never stored on this error.
+    ``request_info`` is a sanitized ``RequestInfo``: empty headers and a URL
+    that does not carry the API key. The parent is constructed with
+    ``history=()`` and ``headers=None``. The API key is never stored on this
+    error.
     """
 
-    def __init__(self, status: int, message: str = "", body: str = "") -> None:
+    def __init__(
+        self,
+        status: int,
+        message: str = "",
+        body: str = "",
+        *,
+        request_info: Optional[aiohttp.RequestInfo] = None,
+    ) -> None:
+        self.body = body
+        super().__init__(
+            request_info if request_info is not None else _blank_request_info(),
+            (),
+            status=status,
+            message=message,
+            headers=None,
+        )
         self.status = status
         self.message = message
         self.body = body
-        super().__init__(status, message, body)
 
     def __str__(self) -> str:
         text = f"{self.status}, message={self.message!r}"
@@ -158,6 +218,46 @@ class Desearch:
             return text
         return text.replace(secret, "[REDACTED]")
 
+    def _redact_url_text(self, value: Optional[str]) -> str:
+        """Replace the API key, including percent-encoded forms, in a URL string."""
+        text = "" if value is None else str(value)
+        secret = self.api_key
+        if not secret or not text:
+            return text
+        variants = [secret, quote(secret, safe=""), quote_plus(secret)]
+        encoded = quote(secret, safe="")
+        if encoded:
+            variants.append(quote(encoded, safe=""))
+        seen = set()
+        for variant in sorted(variants, key=len, reverse=True):
+            if not variant or variant in seen:
+                continue
+            seen.add(variant)
+            text = text.replace(variant, "[REDACTED]")
+        return text
+
+    def _sanitized_url(self, url: Optional[str]) -> URL:
+        """URL with the API key removed and with no query value left to carry it.
+
+        The query and fragment are dropped before ``URL`` sees the string, so a
+        query value cannot carry the key and the original string is not stored.
+        """
+        text = self._redact_url_text(url)
+        cut = len(text)
+        for separator in ("?", "#"):
+            index = text.find(separator)
+            if index != -1:
+                cut = min(cut, index)
+        text = text[:cut]
+        try:
+            return URL(text)
+        except ValueError:
+            return URL("")
+
+    def _sanitized_request_info(self, method: str, url: str) -> aiohttp.RequestInfo:
+        safe_method = self._redact(method) or "GET"
+        return _request_info(safe_method, self._sanitized_url(url))
+
     def _make_api_error(
         self,
         status: int,
@@ -168,14 +268,20 @@ class Desearch:
     ) -> DesearchAPIError:
         safe_message = self._redact(message)
         safe_body = self._redact(body)
+        request_info = self._sanitized_request_info(method, url)
         logger.error(
             "HTTP error %s for %s %s: %s",
             status,
-            method,
-            self._redact(url),
+            request_info.method,
+            str(request_info.url),
             safe_message,
         )
-        return DesearchAPIError(status=status, message=safe_message, body=safe_body)
+        return DesearchAPIError(
+            status=status,
+            message=safe_message,
+            body=safe_body,
+            request_info=request_info,
+        )
 
     async def _read_error_body(self, response: Any) -> str:
         reader = getattr(response, "text", None)
@@ -238,10 +344,15 @@ class Desearch:
                 else:
                     data = await response.json()
                 return data, metadata
+        except DesearchAPIError:
+            # DesearchAPIError is a ClientResponseError. Re-raise it unchanged
+            # so the response body is preserved and it is not wrapped again.
+            raise
         except aiohttp.ClientResponseError as exc:
             # Raised only when a response has no status and raise_for_status()
-            # built a ClientResponseError. Drop it so the key in its request
-            # headers cannot survive on __cause__ or __context__.
+            # built a ClientResponseError. Copy status and reason onto a new
+            # error whose request_info is sanitized. Drop the original so the
+            # key in its headers cannot survive on __cause__ or __context__.
             http_error = self._api_error_from_client_response(exc, method, url)
         except aiohttp.ClientError as exc:
             logger.error(

@@ -48,7 +48,7 @@ Check types at runtime before accessing model attributes.
 
 **What happens**
 
-The shared request path performs one request attempt. HTTP errors are raised as `DesearchAPIError` (status and response body, without request headers). Transport errors are still propagated to the caller.
+The shared request path performs one request attempt. HTTP errors are raised as `DesearchAPIError`, a subclass of `aiohttp.ClientResponseError`, with status and response body. Its `request_info` headers are empty, and the URL does not carry the API key. Transport errors are still propagated to the caller.
 
 **Why unresolved**
 
