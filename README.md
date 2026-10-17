@@ -2,7 +2,7 @@
 
 Official async Python SDK for the Desearch API.
 
-`desearch-py` is a thin `aiohttp` client for the Desearch public API. It wraps search, X, and extraction endpoints behind a single async client class and returns `pydantic` models for most successful responses. The package metadata currently reports **version 1.3.1** and requires **Python 3.9+**.
+`desearch-py` is a thin `aiohttp` client for the Desearch public API. It wraps search, X, extraction, and People Search endpoints behind a single async client class and returns `pydantic` models for most successful responses. The package metadata currently reports **version 1.4.0** and requires **Python 3.9+**.
 
 ## Package purpose
 
@@ -96,6 +96,109 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
+## People Search
+
+People Search finds people, not posts: X profiles, YouTube creators, LinkedIn members, and TikTok creators that match a plain-language description. Each search runs in the background as a task. You start it, wait for it, then read or export the people it found.
+
+```python
+import asyncio
+
+from desearch_py import Desearch, TikTokCreatorSearchFilters
+
+
+async def main() -> None:
+    async with Desearch(api_key="your_api_key") as client:
+        # 1. Start the search. This is the only billed call.
+        task = await client.tiktok_creator_search(
+            query="Skincare creators who review sunscreen",
+            count=25,
+            filters=TikTokCreatorSearchFilters(min_followers=10000),
+            idempotency_key="sunscreen-creators-2026-10",
+        )
+        print(task.task_id, task.status, task.reserved_cost_usd)
+
+        # 2. Wait until it ends (polls every 5 seconds, up to 10 minutes).
+        task = await client.wait_for_people_task(task.task_id)
+        print(task.status, task.result_count, task.final_cost_usd)
+
+        # 3. Read every result, page by page.
+        async for person in client.iter_people_results(task.task_id):
+            score = person.score.value if person.score else None
+            print(person.handle, score, person.metrics.get("followers"))
+
+        # 4. Export only the creators with a public email, as CSV.
+        csv_text = await client.export_people_results(
+            task.task_id, format="csv", has="email"
+        )
+        with open("creators-with-email.csv", "w", encoding="utf-8", newline="") as handle:
+            handle.write(csv_text)
+
+
+asyncio.run(main())
+```
+
+### Pricing
+
+You are billed per profile delivered. Starting a search reserves `count` people at the route price. When the search ends you pay only for the people it delivered, and the rest of the reservation is returned. A minimum applies to each search that finds anyone, and a search that finds nobody is free. Waiting, reading results, pausing, resuming, cancelling, exports, and the profiles library are all free. See <https://console.desearch.ai/pricing> for current prices.
+
+Pass `idempotency_key` when you might retry a search call. A repeated key returns the earlier task and does not charge again.
+
+### Methods
+
+| Method | Route | Returns |
+|---|---|---|
+| `x_profile_search` | `POST /desearch/people/search/x` | `PeopleTask` |
+| `youtube_creator_search` | `POST /desearch/people/search/youtube` | `PeopleTask` |
+| `linkedin_profile_search` | `POST /desearch/people/search/linkedin` | `PeopleTask` |
+| `tiktok_creator_search` | `POST /desearch/people/search/tiktok` | `PeopleTask` |
+| `list_people_tasks` | `GET /desearch/people/tasks` | `PeopleTaskList` |
+| `get_people_task` | `GET /desearch/people/tasks/{task_id}` | `PeopleTask` |
+| `get_people_results` | `GET /desearch/people/tasks/{task_id}/results` | `PeopleResultsPage` |
+| `pause_people_task` / `resume_people_task` / `cancel_people_task` | `POST /desearch/people/tasks/{task_id}/pause` (`/resume`, `/cancel`) | `PeopleTask` |
+| `export_people_results` | `GET /desearch/people/tasks/{task_id}/export` | CSV or JSON Lines text |
+| `list_people_profiles` | `GET /desearch/people/profiles` | `PeopleProfilesPage` |
+| `export_people_profiles` | `GET /desearch/people/profiles/export` | CSV or JSON Lines text |
+| `wait_for_people_task` | polls `get_people_task` | the ended `PeopleTask` |
+| `iter_people_results` | follows `next_cursor` on `get_people_results` | async iterator of `Person` |
+
+Every search method takes `query`, `count` (5-200), `min_score` (0-100), `exclude` (handles to skip), and `filters`. Each platform has its own filters model: `XProfileSearchFilters`, `YouTubeCreatorSearchFilters`, `LinkedInProfileSearchFilters`, and `TikTokCreatorSearchFilters`. A plain `dict` also works.
+
+`wait_for_people_task` returns once the status is `completed`, `partial`, `failed`, `cancelled`, or `expired`. Tune it with `poll_interval` and `timeout` (seconds; `timeout=None` waits without a limit). On timeout it raises `PeopleTaskTimeoutError` with the last task state on `.task`. The search keeps running. A paused task stays paused until you resume it (the API cancels it after 7 days), so waiting on one runs until the timeout.
+
+### Result filters
+
+`export_people_results`, `list_people_profiles`, and `export_people_profiles` take the same result filters, as keyword arguments or as a `PeopleResultFilters` object (keyword arguments win):
+
+| Filter | Meaning |
+|---|---|
+| `has` | Channels every person must have: `email`, `website`, `x`, `linkedin`, `instagram`, `youtube`, `tiktok`. A list or a comma-separated string. |
+| `min_audience` / `max_audience` | Followers (subscribers on YouTube). |
+| `min_score` | Minimum fit score, 0-100. |
+| `location` | Text in the location, for example `"united states"`. |
+| `verified` | `True` keeps only verified accounts (X, TikTok). |
+
+```python
+from desearch_py import PeopleResultFilters
+
+page = await client.list_people_profiles(
+    "tiktok",
+    sort="audience",
+    filters=PeopleResultFilters(has=["email", "instagram"], min_audience=50000),
+)
+for profile in page.profiles:
+    print(profile.handle, profile.found_by.query, profile.found_by.times_found)
+```
+
+### People Search errors
+
+HTTP errors raise `DesearchAPIError`, as elsewhere in the SDK. Statuses specific to People Search:
+
+- `402`: the account has no credits for the reservation.
+- `429`: too many searches are already queued, running, or paused.
+- `404`: the task does not exist or belongs to another account.
+- `410`: the results expired (they are kept 30 days after the search ends).
+- `409` from pause, resume, or cancel raises `PeopleTaskConflictError`, a `DesearchAPIError` subclass. `.detail` explains why, and `.task` holds the task's current state.
+
 ## Requirements
 
 Dependencies declared in source:
@@ -118,7 +221,7 @@ Dependencies declared in source:
 | Run tests | `poetry run python -m unittest discover -s tests -v` | Uses the stdlib unittest runner |
 | Build Sphinx docs | `make -C docs html` | Requires Sphinx dev deps |
 
-A minimal unittest suite covers response metadata behavior. There is still no dedicated lint or format command configured in the repo.
+A unittest suite covers response metadata, API key redaction, and People Search, with HTTP mocked or served from a local test server. There is still no dedicated lint or format command configured in the repo.
 
 ## Tech stack
 
@@ -165,9 +268,19 @@ content = await client.extract(
 
 Existing `web_crawl()` integrations continue to work through the legacy route. Use `extract()` for new integrations.
 
+### People Search endpoints
+
+- `x_profile_search`, `youtube_creator_search`, `linkedin_profile_search`, `tiktok_creator_search`
+- `list_people_tasks`, `get_people_task`, `get_people_results`
+- `pause_people_task`, `resume_people_task`, `cancel_people_task`
+- `export_people_results`, `list_people_profiles`, `export_people_profiles`
+- helpers: `wait_for_people_task`, `iter_people_results`
+
+See [People Search](#people-search) for an example, pricing, and filters.
+
 ### Typed exports
 
-The package re-exports the async client plus enums and models from `desearch_py.models`, including `Tool`, `WebTool`, `DateFilter`, `ResultType`, `Sort`, `ResponseData`, `DesearchCostMetadata`, `DesearchResponse`, `TwitterScraperTweet`, `WebSearchResponse`, `WebSearchResultsResponse`, `XLinksSearchResponse`, `XRetweetersResponse`, `XUserPostsResponse`, and `XTrendsResponse`.
+The package re-exports the async client plus enums and models from `desearch_py.models`, including `Tool`, `WebTool`, `DateFilter`, `ResultType`, `Sort`, `ResponseData`, `DesearchCostMetadata`, `DesearchResponse`, `TwitterScraperTweet`, `WebSearchResponse`, `WebSearchResultsResponse`, `XLinksSearchResponse`, `XRetweetersResponse`, `XUserPostsResponse`, and `XTrendsResponse`. People Search adds `PeopleTask`, `PeopleTaskList`, `PeopleResultsPage`, `Person`, `PeopleProfile`, `PeopleProfilesPage`, `PeopleResultFilters`, the four request and filters models, the enums `PeoplePlatform`, `PeopleTaskStatus`, `PeopleProfileSort`, `PeopleExportFormat`, and `PeopleChannel`, and the errors `PeopleTaskConflictError` and `PeopleTaskTimeoutError`.
 
 ## Architecture overview
 
@@ -186,6 +299,7 @@ Key design decisions visible in code:
 - `x_posts_by_urls` and the extraction methods use specialized request paths for repeated query parameters and text responses, while still supporting the metadata wrapper
 - some endpoints fall back to raw `dict` values instead of failing model parsing
 - `ai_search` always sends `"streaming": False`
+- People Search searches are background tasks; `wait_for_people_task` and `iter_people_results` are the SDK's only polling and pagination helpers
 
 ## Usage notes
 

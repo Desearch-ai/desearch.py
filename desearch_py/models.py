@@ -3,7 +3,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Any, Dict, Generic, List, Optional, TypeVar, Union
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 T = TypeVar("T")
 
@@ -48,6 +48,61 @@ class ResultType(str, Enum):
 class Sort(str, Enum):
     TOP = "Top"
     LATEST = "Latest"
+
+
+class PeoplePlatform(str, Enum):
+    X = "x"
+    YOUTUBE = "youtube"
+    LINKEDIN = "linkedin"
+    TIKTOK = "tiktok"
+
+
+class PeopleTaskStatus(str, Enum):
+    QUEUED = "queued"
+    RUNNING = "running"
+    PAUSING = "pausing"
+    PAUSED = "paused"
+    CANCELLING = "cancelling"
+    COMPLETED = "completed"
+    PARTIAL = "partial"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+    EXPIRED = "expired"
+
+
+# Statuses after which a People Search task never changes again.
+PEOPLE_TASK_ENDED_STATUSES = frozenset(
+    {
+        PeopleTaskStatus.COMPLETED.value,
+        PeopleTaskStatus.PARTIAL.value,
+        PeopleTaskStatus.FAILED.value,
+        PeopleTaskStatus.CANCELLED.value,
+        PeopleTaskStatus.EXPIRED.value,
+    }
+)
+
+
+class PeopleProfileSort(str, Enum):
+    SCORE = "score"
+    RECENT = "recent"
+    AUDIENCE = "audience"
+
+
+class PeopleExportFormat(str, Enum):
+    CSV = "csv"
+    JSONL = "jsonl"
+
+
+class PeopleChannel(str, Enum):
+    """Channels accepted by the ``has`` result filter."""
+
+    EMAIL = "email"
+    WEBSITE = "website"
+    X = "x"
+    LINKEDIN = "linkedin"
+    INSTAGRAM = "instagram"
+    YOUTUBE = "youtube"
+    TIKTOK = "tiktok"
 
 
 # ─── Twitter / X Models ──────────────────────────────────────────────────────
@@ -427,6 +482,291 @@ class XTrendsResponse(BaseModel):
 
     trends: List[XTrendItem]
     woeid: Optional[XTrendsWoeid] = None
+
+
+# ─── People Search Request Models ────────────────────────────────────────────
+#
+# Bodies for POST /desearch/people/search/{x,youtube,linkedin,tiktok}. The API
+# validates ranges (count 5-200, min_score 0-100, query 3-1000 characters) and
+# returns 422 when a value is out of range or a filter is not supported.
+
+
+class XProfileSearchFilters(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    min_followers: Optional[int] = None
+    max_followers: Optional[int] = None
+    verified_only: Optional[bool] = None
+    countries: Optional[List[str]] = None
+    keywords: Optional[List[str]] = None
+    exclude_keywords: Optional[List[str]] = None
+
+
+class YouTubeCreatorSearchFilters(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    min_subscribers: Optional[int] = None
+    max_subscribers: Optional[int] = None
+    countries: Optional[List[str]] = None
+    require_contact: Optional[bool] = None
+    keywords: Optional[List[str]] = None
+    exclude_keywords: Optional[List[str]] = None
+
+
+class LinkedInProfileSearchFilters(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    min_followers: Optional[int] = None
+    max_followers: Optional[int] = None
+    countries: Optional[List[str]] = None
+    keywords: Optional[List[str]] = None
+    exclude_keywords: Optional[List[str]] = None
+
+
+class TikTokCreatorSearchFilters(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    min_followers: Optional[int] = None
+    max_followers: Optional[int] = None
+    require_contact: Optional[bool] = None
+    keywords: Optional[List[str]] = None
+    exclude_keywords: Optional[List[str]] = None
+
+
+class _PeopleSearchRequest(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    query: str
+    count: Optional[int] = None
+    min_score: Optional[int] = None
+    exclude: Optional[List[str]] = None
+
+
+class XProfileSearchRequest(_PeopleSearchRequest):
+    filters: Optional[XProfileSearchFilters] = None
+
+
+class YouTubeCreatorSearchRequest(_PeopleSearchRequest):
+    filters: Optional[YouTubeCreatorSearchFilters] = None
+
+
+class LinkedInProfileSearchRequest(_PeopleSearchRequest):
+    filters: Optional[LinkedInProfileSearchFilters] = None
+
+
+class TikTokCreatorSearchRequest(_PeopleSearchRequest):
+    filters: Optional[TikTokCreatorSearchFilters] = None
+
+
+def _enum_value(value: Any) -> Any:
+    return value.value if isinstance(value, Enum) else value
+
+
+class PeopleResultFilters(BaseModel):
+    """Result filters for task exports, the profiles library and its export.
+
+    ``has`` lists channels every person must have (see ``PeopleChannel``). It
+    accepts a list or a comma-separated string and is sent comma-separated.
+    ``min_audience``/``max_audience`` compare followers (subscribers on
+    YouTube). ``verified=True`` keeps only verified accounts (X, TikTok); the
+    API ignores ``verified=False``.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    has: Optional[List[str]] = None
+    min_audience: Optional[int] = None
+    max_audience: Optional[int] = None
+    min_score: Optional[int] = None
+    location: Optional[str] = None
+    verified: Optional[bool] = None
+
+    @field_validator("has", mode="before")
+    @classmethod
+    def _split_has(cls, value: Any) -> Any:
+        if value is None:
+            return None
+        if isinstance(value, (str, Enum)):
+            value = [value]
+        channels: List[str] = []
+        for item in value:
+            text = str(_enum_value(item))
+            for part in text.split(","):
+                part = part.strip()
+                if part and part not in channels:
+                    channels.append(part)
+        return channels
+
+    def to_params(self) -> Dict[str, Union[str, int]]:
+        """Return the filters as API query parameters."""
+        params: Dict[str, Union[str, int]] = {}
+        for key, value in self.model_dump(exclude_none=True).items():
+            value = _enum_value(value)
+            if isinstance(value, bool):
+                params[key] = "true" if value else "false"
+            elif isinstance(value, (list, tuple)):
+                if value:
+                    params[key] = ",".join(str(_enum_value(item)) for item in value)
+            else:
+                params[key] = value
+        return params
+
+
+# ─── People Search Response Models ───────────────────────────────────────────
+
+
+class PeopleTaskLinks(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    self: Optional[str] = None
+    results: Optional[str] = None
+    export: Optional[str] = None
+
+
+class PeopleTaskCreatedBy(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    user_id: Optional[str] = None
+    api_key_id: Optional[str] = None
+    via: Optional[str] = None
+
+
+class PeopleTask(BaseModel):
+    """A People Search task. Timestamps are ISO 8601 strings.
+
+    ``cost_usd`` and ``usage_count`` are set on the response of the call that
+    created the search (what that call reserved). ``final_cost_usd`` is what
+    the search cost once it ended.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    task_id: str
+    search_type: str
+    platform: str
+    status: str
+    stage: Optional[str] = None
+    query: str
+    count: int
+    result_count: int
+    interpreted: Optional[Dict[str, Any]] = None
+    progress: Dict[str, Any] = Field(default_factory=dict)
+    errors: List[Any] = Field(default_factory=list)
+    reserved_cost_usd: float
+    final_cost_usd: Optional[float] = None
+    refunded_usd: Optional[float] = None
+    cost_usd: Optional[float] = None
+    usage_count: Optional[int] = None
+    created_by: Optional[PeopleTaskCreatedBy] = None
+    created_at: str
+    started_at: Optional[str] = None
+    paused_at: Optional[str] = None
+    finished_at: Optional[str] = None
+    results_expire_at: Optional[str] = None
+    links: Optional[PeopleTaskLinks] = None
+
+    @property
+    def is_finished(self) -> bool:
+        """True once the task has ended and will not change again."""
+        return self.status in PEOPLE_TASK_ENDED_STATUSES
+
+
+class PeopleTaskList(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    tasks: List[PeopleTask]
+    next_cursor: Optional[str] = None
+
+
+class PeopleEvidence(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    type: str
+    url: Optional[str] = None
+    text: Optional[str] = None
+    title: Optional[str] = None
+    published_at: Optional[str] = None
+    metrics: Optional[Dict[str, Any]] = None
+
+
+class PeopleScore(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    value: Optional[float] = None
+    qualified: Optional[bool] = None
+    summary: Optional[str] = None
+    matched_signals: List[str] = Field(default_factory=list)
+    profile_fit: List[str] = Field(default_factory=list)
+    buying_triggers: List[str] = Field(default_factory=list)
+    evidence: List[str] = Field(default_factory=list)
+    reasons: List[str] = Field(default_factory=list)
+    concerns: List[str] = Field(default_factory=list)
+
+
+class Person(BaseModel):
+    """One qualified profile (X, LinkedIn) or creator (YouTube, TikTok).
+
+    ``links`` items look like ``{"type": "website", "url": ...}`` and
+    ``contacts`` items like ``{"type": "email", "value": ...}``.
+    ``attributes`` holds platform details such as ``verified`` or ``headline``.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    id: str
+    platform: str
+    handle: str
+    url: Optional[str] = None
+    name: Optional[str] = None
+    avatar_url: Optional[str] = None
+    bio: Optional[str] = None
+    location: Optional[str] = None
+    metrics: Dict[str, Any] = Field(default_factory=dict)
+    attributes: Dict[str, Any] = Field(default_factory=dict)
+    links: List[Dict[str, Any]] = Field(default_factory=list)
+    contacts: List[Dict[str, Any]] = Field(default_factory=list)
+    evidence: List[PeopleEvidence] = Field(default_factory=list)
+    score: Optional[PeopleScore] = None
+
+
+class PeopleResultsPage(BaseModel):
+    """One page of task results.
+
+    Pass ``next_cursor`` as ``cursor`` on the next call. When ``has_more`` is
+    false you have every result found so far; calling again later with the same
+    cursor returns only new results.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    task_id: str
+    status: str
+    results: List[Person]
+    next_cursor: str
+    has_more: bool
+
+
+class PersonFoundBy(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    task_id: str
+    query: str
+    found_at: str
+    times_found: int
+
+
+class PeopleProfile(Person):
+    """A person from your searches, with the search that found them."""
+
+    found_by: PersonFoundBy
+
+
+class PeopleProfilesPage(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    profiles: List[PeopleProfile]
+    total: int
+    next_cursor: Optional[str] = None
 
 
 # ─── Error Response Models ────────────────────────────────────────────────────
