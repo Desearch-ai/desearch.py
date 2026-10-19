@@ -74,7 +74,7 @@ Timeout configuration is not exposed on the client or individual methods.
 
 **Impact**
 
-Long-running extraction or search calls cannot be tuned per environment.
+Long-running extraction or search calls cannot be tuned per environment. Large People Search exports (`export_people_profiles` returns up to 10,000 people) must also finish within 120 seconds. `wait_for_people_task()` is not affected: each poll is its own short request.
 
 **Workaround**
 
@@ -84,7 +84,7 @@ Keep requests small where possible, or enforce higher-level timeout handling aro
 
 **What happens**
 
-Cursor-aware endpoints like `x_post_retweeters()` and `x_user_posts()` return typed responses with cursor fields, but the SDK does not auto-follow them.
+Cursor-aware endpoints like `x_post_retweeters()`, `x_user_posts()`, `list_people_tasks()`, and `list_people_profiles()` return typed responses with cursor fields, but the SDK does not auto-follow them. People Search task results are the exception: `iter_people_results()` follows `next_cursor` for you.
 
 **Why unresolved**
 
@@ -160,7 +160,7 @@ Use `README.md` and the Markdown files in `docs/` as the current documentation s
 | Mixed typed and raw dict returns | Medium | Add runtime type checks |
 | No retry/backoff | Medium | Retry in caller |
 | Fixed 120 second timeout | Low | Control timeout behavior at the caller layer |
-| No pagination helpers | Low | Manually reuse cursor values |
+| No pagination helpers (except People Search results) | Low | Manually reuse cursor values |
 | Extraction methods return raw text | Low | Parse returned content yourself |
 | Specialized request paths | Low | Audit special-case methods during transport changes |
 | Legacy Sphinx branding | Info | Ignore `docs/_build/` as a source of truth |

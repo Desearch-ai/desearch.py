@@ -4,7 +4,7 @@ This document explains how the SDK is structured today, based on the checked-in 
 
 ## Overview
 
-`desearch-py` is a thin async wrapper over the Desearch HTTP API. The codebase is intentionally small and split across three public-facing package files:
+`desearch-py` is a thin async wrapper over the Desearch HTTP API, including the task-based People Search API. The codebase is intentionally small and split across three public-facing package files:
 
 - `desearch_py/api.py` contains the async client and every endpoint method.
 - `desearch_py/models.py` contains enums plus permissive `pydantic` response models.
@@ -79,6 +79,8 @@ Why that appears to exist in the current code:
 - `x_posts_by_urls()` needs repeated `urls` query params expressed as a tuple list
 - the extraction endpoints return `response.text()` instead of JSON
 
+People Search exports (`export_people_results`, `export_people_profiles`) reuse `_handle_text_request()` because the API returns a CSV or JSON Lines file, not JSON.
+
 Tradeoff:
 
 - these methods can support their special request shapes cleanly
@@ -110,12 +112,25 @@ Every public endpoint keeps its existing default return shape. For example, `awa
 
 Callers that pass `include_metadata=True` receive `DesearchResponse[data, metadata]` instead. The `data` field contains the same payload the method would have returned by default, and `metadata` is parsed from the same response headers: `X-Desearch-Cost-Usd` (for example `0.00015`), `X-Desearch-Usage-Count`, `X-Desearch-Service`, and `X-Desearch-Currency`. Numeric parse failures become `None` so successful API responses are not turned into SDK errors.
 
+### 5. People Search is task-based
+
+The four People Search methods (`x_profile_search`, `youtube_creator_search`, `linkedin_profile_search`, `tiktok_creator_search`) POST a request body built from typed request models and return a `PeopleTask` at once; the search runs on the server. An optional `idempotency_key` is sent as the `Idempotency-Key` header.
+
+Two helpers sit on top of the plain route methods:
+
+- `wait_for_people_task()` polls `get_people_task()` with `asyncio.sleep` until the task status is one of `PEOPLE_TASK_ENDED_STATUSES`, or raises `PeopleTaskTimeoutError`.
+- `iter_people_results()` follows `next_cursor` on `get_people_results()` until `has_more` is false.
+
+Result filters are merged from a `PeopleResultFilters` object (or dict) and keyword arguments, then sent as query params: `has` comma-separated and booleans as `true`/`false`, because aiohttp rejects `bool` query values.
+
+A 409 from pause, resume, or cancel is raised as `PeopleTaskConflictError`, a `DesearchAPIError` subclass that also carries the task parsed from the (already redacted) response body. Like other HTTP errors it is raised with no `__cause__` or `__context__`.
+
 ## Public API boundary
 
 `desearch_py/__init__.py` is the package boundary for consumers. It re-exports:
 
 - `Desearch`
-- `DesearchAPIError`
+- `DesearchAPIError`, plus the People Search errors `PeopleTaskConflictError` and `PeopleTaskTimeoutError`
 - enums such as `Tool`, `WebTool`, `DateFilter`, `ResultType`, `Sort`
 - response models
 - response metadata wrapper models
@@ -131,9 +146,9 @@ Practical effect:
 
 The repo keeps both Poetry and setuptools metadata:
 
-- `pyproject.toml` names the package `desearch-py` and declares version `1.3.1`
-- `setup.py` packages the import module `desearch_py` and also declares version `1.3.1`
-- `desearch_py.__version__` is `1.3.1`
+- `pyproject.toml` names the package `desearch-py` and declares version `1.4.0`
+- `setup.py` packages the import module `desearch_py` and also declares version `1.4.0`
+- `desearch_py.__version__` is `1.4.0`
 
 This dual-metadata setup supports multiple install flows, but it creates a maintenance obligation: version and dependency drift between the two files would be a release bug.
 
@@ -156,11 +171,10 @@ That means contributors should treat the checked source code and Markdown docs a
 The current implementation does **not** include:
 
 - built-in retries or backoff
-- SDK-specific exception classes
-- automatic pagination helpers
+- automatic pagination helpers outside People Search results (`iter_people_results`)
 - streaming response handling
 - sync client support
-- test or lint infrastructure inside this repo
+- lint infrastructure inside this repo
 
 ## Key design decisions
 

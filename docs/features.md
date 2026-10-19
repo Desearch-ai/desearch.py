@@ -2,7 +2,7 @@
 
 > Status key: ✅ working · ⚠️ degraded · ❌ broken · 🚧 in progress
 
-This inventory is derived from the current source in `desearch_py/api.py`, `desearch_py/models.py`, `pyproject.toml`, and `setup.py`. Current package version: **1.3.1**.
+This inventory is derived from the current source in `desearch_py/api.py`, `desearch_py/models.py`, `pyproject.toml`, and `setup.py`. Current package version: **1.4.0**.
 
 ## Overview
 
@@ -87,12 +87,42 @@ The SDK exposes one async client class, `Desearch`, plus a large set of typed mo
 | `extract` | `GET /web/extract` | ✅ | Canonical extraction method with text/HTML, JavaScript rendering, and optional wait controls. |
 | `web_crawl` | `GET /web/crawl` | ⚠️ legacy | Deprecated compatibility method retained for existing clients. |
 
+## People Search features
+
+Searches run as background tasks. Only the four search methods are billed (per profile delivered); every task, results, export, and profiles call is free.
+
+| Method | Endpoint | Status | Notes |
+|---|---|---|---|
+| `x_profile_search` | `POST /desearch/people/search/x` | ✅ | Typed `XProfileSearchFilters` or a dict. Optional `Idempotency-Key`. Returns `PeopleTask`. |
+| `youtube_creator_search` | `POST /desearch/people/search/youtube` | ✅ | Typed `YouTubeCreatorSearchFilters` or a dict. Optional `Idempotency-Key`. |
+| `linkedin_profile_search` | `POST /desearch/people/search/linkedin` | ✅ | Typed `LinkedInProfileSearchFilters` or a dict. Optional `Idempotency-Key`. |
+| `tiktok_creator_search` | `POST /desearch/people/search/tiktok` | ✅ | Typed `TikTokCreatorSearchFilters` or a dict. Optional `Idempotency-Key`. |
+| `list_people_tasks` | `GET /desearch/people/tasks` | ✅ | `platform`, `status` (list or comma string), `limit`, `cursor`. |
+| `get_people_task` | `GET /desearch/people/tasks/{task_id}` | ✅ | Returns `PeopleTask`. |
+| `get_people_results` | `GET /desearch/people/tasks/{task_id}/results` | ✅ | One page; pass `next_cursor` back as `cursor`. |
+| `pause_people_task` / `resume_people_task` / `cancel_people_task` | `POST /desearch/people/tasks/{task_id}/{pause,resume,cancel}` | ✅ | HTTP 409 raises `PeopleTaskConflictError` with the task's current state. |
+| `export_people_results` | `GET /desearch/people/tasks/{task_id}/export` | ✅ | CSV or JSON Lines text, with result filters. |
+| `list_people_profiles` | `GET /desearch/people/profiles` | ✅ | `platform`, `q`, `sort`, `limit`, `cursor`, result filters. |
+| `export_people_profiles` | `GET /desearch/people/profiles/export` | ✅ | CSV or JSON Lines text, with result filters. |
+| `wait_for_people_task` | polls `GET /desearch/people/tasks/{task_id}` | ✅ | Defaults: every 5 s, 600 s timeout, then `PeopleTaskTimeoutError`. |
+| `iter_people_results` | pages `GET /desearch/people/tasks/{task_id}/results` | ✅ | Async iterator of `Person`; stops when no more results are available now. |
+
+### Result filter coverage
+
+| Filter | Sent as | Status |
+|---|---|---|
+| `has` | comma-separated channels | ✅ |
+| `min_audience` / `max_audience` | integers | ✅ |
+| `min_score` | integer 0-100 | ✅ |
+| `location` | text | ✅ |
+| `verified` | `true` / `false` | ✅ |
+
 ## Models and exports
 
 | Surface | Status | Notes |
 |---|---|---|
-| Enums exported from package root | ✅ | `Tool`, `WebTool`, `DateFilter`, `ResultType`, `Sort` are all re-exported. |
-| Response models exported from package root | ✅ | Core search, web, X, and error models are re-exported. |
+| Enums exported from package root | ✅ | `Tool`, `WebTool`, `DateFilter`, `ResultType`, `Sort`, `PeoplePlatform`, `PeopleTaskStatus`, `PeopleProfileSort`, `PeopleExportFormat`, `PeopleChannel` are all re-exported. |
+| Response models exported from package root | ✅ | Core search, web, X, People Search, and error models are re-exported. |
 | Forward-compatible parsing | ✅ | Models use `ConfigDict(extra="allow")` to tolerate extra API fields. |
 | Strict schema enforcement | ❌ | The SDK intentionally does not reject unknown fields. |
 | Type marker file | ✅ | `desearch_py/py.typed` is included in package data. |
@@ -101,9 +131,9 @@ The SDK exposes one async client class, `Desearch`, plus a large set of typed mo
 
 | Surface | Status | Notes |
 |---|---|---|
-| Poetry metadata in `pyproject.toml` | ✅ | Declares package name `desearch-py`, version `1.3.1`, and runtime deps. |
-| setuptools metadata in `setup.py` | ✅ | Declares import package `desearch_py`, version `1.3.1`, and package data. |
-| Version parity between Poetry and setuptools | ✅ | `pyproject.toml`, `setup.py`, and `desearch_py.__version__` currently declare `1.3.1`. |
+| Poetry metadata in `pyproject.toml` | ✅ | Declares package name `desearch-py`, version `1.4.0`, and runtime deps. |
+| setuptools metadata in `setup.py` | ✅ | Declares import package `desearch_py`, version `1.4.0`, and package data. |
+| Version parity between Poetry and setuptools | ✅ | `pyproject.toml`, `setup.py`, and `desearch_py.__version__` currently declare `1.4.0`. |
 | Sphinx source files | ✅ | `docs/conf.py`, `docs/index.rst`, `docs/Makefile`, and `docs/make.bat` are present. |
 | Sphinx branding correctness | ❌ | `docs/conf.py` and generated `docs/_build/` still carry legacy `datura-py` / `Leva` metadata. |
 
@@ -115,5 +145,6 @@ The SDK exposes one async client class, `Desearch`, plus a large set of typed mo
 | AI search | 2 | 1 | 1 | 0 |
 | X / Twitter | 3 | 6 | 0 | 0 |
 | Web | 1 | 1 | 0 | 0 |
+| People Search | 13 | 0 | 0 | 0 |
 | Models / exports | 4 | 0 | 1 | 0 |
 | Packaging / docs tooling | 4 | 0 | 1 | 0 |
