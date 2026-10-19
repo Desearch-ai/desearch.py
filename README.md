@@ -2,7 +2,7 @@
 
 Official async Python SDK for the Desearch API.
 
-`desearch-py` is a thin `aiohttp` client for the Desearch public API. It wraps search, X, extraction, and People Search endpoints behind a single async client class and returns `pydantic` models for most successful responses. The package metadata currently reports **version 1.4.0** and requires **Python 3.9+**.
+`desearch-py` is a thin `aiohttp` client for the Desearch public API. It wraps search, X, extraction, and People Search endpoints behind a single async client class and returns `pydantic` models for most successful responses. The package metadata currently reports **version 1.5.0** and requires **Python 3.9+**.
 
 ## Package purpose
 
@@ -161,9 +161,30 @@ Pass `idempotency_key` when you might retry a search call. A repeated key return
 | `wait_for_people_task` | polls `get_people_task` | the ended `PeopleTask` |
 | `iter_people_results` | follows `next_cursor` on `get_people_results` | async iterator of `Person` |
 
-Every search method takes `query`, `count` (5-200), `min_score` (0-100), `exclude` (handles to skip), and `filters`. Each platform has its own filters model: `XProfileSearchFilters`, `YouTubeCreatorSearchFilters`, `LinkedInProfileSearchFilters`, and `TikTokCreatorSearchFilters`. A plain `dict` also works.
+Every search method takes `query`, `count` (5-200), `min_score` (0-100), `exclude` (handles to skip), `filters`, and `metadata` (your own labels, see below). Each platform has its own filters model: `XProfileSearchFilters`, `YouTubeCreatorSearchFilters`, `LinkedInProfileSearchFilters`, and `TikTokCreatorSearchFilters`. A plain `dict` also works.
 
 `wait_for_people_task` returns once the status is `completed`, `partial`, `failed`, `cancelled`, or `expired`. Tune it with `poll_interval` and `timeout` (seconds; `timeout=None` waits without a limit). On timeout it raises `PeopleTaskTimeoutError` with the last task state on `.task`. The search keeps running. A paused task stays paused until you resume it (the API cancels it after 7 days), so waiting on one runs until the timeout.
+
+### Tagging searches with metadata
+
+Pass `metadata` to label a search with your own keys, for example the campaign or workspace it belongs to. The task returns it as `task.metadata` (`{}` when none was sent), and `list_people_tasks` can filter by it. The search itself never uses it.
+
+```python
+await client.linkedin_profile_search(
+    query="Heads of sales at fintech startups who post about outbound",
+    count=25,
+    metadata={"campaign": "q4-outbound", "workspace_id": "ws_42"},
+)
+
+# Later: every search of that campaign, newest first.
+page = await client.list_people_tasks(metadata={"campaign": "q4-outbound"})
+for task in page.tasks:
+    print(task.task_id, task.status, task.metadata.get("workspace_id"))
+```
+
+- A search takes at most 10 keys. Keys are 1-40 characters of `a-z`, `0-9`, `_`, `.` or `-`; values are strings of at most 200 characters. The API answers 422 otherwise (raised as `DesearchAPIError`).
+- `list_people_tasks` takes up to 3 pairs. The SDK sends each as a `metadata.<key>=<value>` query parameter, and a task must match all of them exactly. Keep the same filter when you page with `cursor`.
+- `metadata` here is the task's labels. It is not the `include_metadata=True` response cost wrapper.
 
 ### Result filters
 

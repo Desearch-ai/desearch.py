@@ -223,6 +223,34 @@ class PeopleSearchCreateTests(unittest.IsolatedAsyncioTestCase):
             )
         self.assertEqual(client.client.requests, [])
 
+    async def test_metadata_is_sent_by_every_search_and_returned_on_the_task(self):
+        metadata = {"workspace_id": "ws_42", "campaign": "q4-outbound"}
+        cases = (
+            ("x_profile_search", "x"),
+            ("youtube_creator_search", "youtube"),
+            ("linkedin_profile_search", "linkedin"),
+            ("tiktok_creator_search", "tiktok"),
+        )
+        for method_name, platform in cases:
+            with self.subTest(method=method_name):
+                client = self.make_client(
+                    FakeResponse(json_data=_task(platform=platform, metadata=metadata))
+                )
+                task = await getattr(client, method_name)(
+                    query="who I want", count=5, metadata=metadata
+                )
+                self.assertEqual(task.metadata, metadata)
+                self.assertEqual(
+                    client.client.requests[0][2]["json"],
+                    {"query": "who I want", "count": 5, "metadata": metadata},
+                )
+
+    async def test_task_metadata_defaults_to_an_empty_dict(self):
+        client = self.make_client(FakeResponse(json_data=_task()))
+        task = await client.tiktok_creator_search(query="Skincare creators")
+        self.assertEqual(task.metadata, {})
+        self.assertNotIn("metadata", client.client.requests[0][2]["json"])
+
     async def test_idempotency_key_is_sent_as_a_header(self):
         client = self.make_client(FakeResponse(json_data=_task(), status=200))
         task = await client.tiktok_creator_search(
@@ -314,6 +342,49 @@ class PeopleTaskRouteTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             client.client.requests[0][2]["params"], {"status": "running,paused"}
         )
+
+    async def test_list_tasks_sends_metadata_as_dotted_params(self):
+        client = self.make_client(
+            FakeResponse(
+                json_data={
+                    "tasks": [_task("completed", metadata={"campaign": "q4-outbound"})],
+                    "next_cursor": None,
+                }
+            ),
+            FakeResponse(json_data={"tasks": [], "next_cursor": None}),
+        )
+        page = await client.list_people_tasks(
+            platform="tiktok",
+            limit=5,
+            metadata={"campaign": "q4-outbound", "workspace_id": "ws_42"},
+        )
+        self.assertEqual(page.tasks[0].metadata, {"campaign": "q4-outbound"})
+        self.assertEqual(
+            client.client.requests[0][2]["params"],
+            {
+                "platform": "tiktok",
+                "limit": 5,
+                "metadata.campaign": "q4-outbound",
+                "metadata.workspace_id": "ws_42",
+            },
+        )
+        await client.list_people_tasks(metadata={})
+        self.assertEqual(client.client.requests[1][2]["params"], {})
+
+    async def test_rejected_metadata_filter_raises_desearch_api_error(self):
+        client = self.make_client(
+            FakeResponse(
+                json_data={"detail": "At most 3 metadata filters"},
+                status=400,
+                reason="Bad Request",
+            )
+        )
+        with self.assertRaises(DesearchAPIError) as caught:
+            await client.list_people_tasks(
+                metadata={"a": "1", "b": "2", "c": "3", "d": "4"}
+            )
+        self.assertEqual(caught.exception.status, 400)
+        self.assertIn("At most 3 metadata filters", caught.exception.body)
 
     async def test_get_task(self):
         client = self.make_client(
@@ -690,6 +761,7 @@ class PeopleSearchHttpTests(unittest.IsolatedAsyncioTestCase):
                     "method": request.method,
                     "path": request.path,
                     "query": request.query_string,
+                    "params": list(request.query.items()),
                     "authorization": request.headers.get("Authorization"),
                     "idempotency_key": request.headers.get("Idempotency-Key"),
                     "body": await request.text(),
@@ -711,6 +783,8 @@ class PeopleSearchHttpTests(unittest.IsolatedAsyncioTestCase):
                 return web.json_response({"detail": "forbidden " + KEY}, status=403)
             if path.startswith("/desearch/people/search/"):
                 return web.json_response(_task(), status=202)
+            if path == "/desearch/people/tasks":
+                return web.json_response({"tasks": [], "next_cursor": None})
             return web.json_response({"profiles": [], "total": 0, "next_cursor": None})
 
         app = web.Application()
@@ -763,6 +837,35 @@ class PeopleSearchHttpTests(unittest.IsolatedAsyncioTestCase):
             self.seen[1]["query"], "platform=tiktok&has=email&verified=false"
         )
         self.assertIsNone(self.seen[0]["idempotency_key"])
+
+    async def test_metadata_reaches_the_server_in_the_body_and_as_filters(self):
+        await self.client.linkedin_profile_search(
+            query="Heads of sales at fintech startups",
+            count=5,
+            metadata={"campaign": "q4 outbound & more"},
+        )
+        page = await self.client.list_people_tasks(
+            status="completed",
+            metadata={"campaign": "q4 outbound & more", "team.id": "t-1"},
+        )
+        self.assertEqual(page.tasks, [])
+        self.assertEqual(
+            json.loads(self.seen[0]["body"]),
+            {
+                "query": "Heads of sales at fintech startups",
+                "count": 5,
+                "metadata": {"campaign": "q4 outbound & more"},
+            },
+        )
+        self.assertEqual(self.seen[1]["path"], "/desearch/people/tasks")
+        self.assertEqual(
+            self.seen[1]["params"],
+            [
+                ("status", "completed"),
+                ("metadata.campaign", "q4 outbound & more"),
+                ("metadata.team.id", "t-1"),
+            ],
+        )
 
     async def test_conflict_over_http_is_parsed_and_redacted(self):
         with self.assertRaises(PeopleTaskConflictError) as caught:

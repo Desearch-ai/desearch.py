@@ -2,7 +2,7 @@ from setuptools import find_packages, setup
 
 setup(
     name="desearch_py",
-    version="1.4.0",
+    version="1.5.0",
     description="A Python SDK for interacting with the Desearch API service.",
     author="Desearch",
     author_email="",
