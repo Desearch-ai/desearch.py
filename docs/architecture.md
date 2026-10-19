@@ -114,7 +114,7 @@ Callers that pass `include_metadata=True` receive `DesearchResponse[data, metada
 
 ### 5. People Search is task-based
 
-The four People Search methods (`x_profile_search`, `youtube_creator_search`, `linkedin_profile_search`, `tiktok_creator_search`) POST a request body built from typed request models and return a `PeopleTask` at once; the search runs on the server. An optional `idempotency_key` is sent as the `Idempotency-Key` header.
+The four People Search methods (`x_profile_search`, `youtube_creator_search`, `linkedin_profile_search`, `tiktok_creator_search`) POST a request body built from typed request models and return a `PeopleTask` at once; the search runs on the server. An optional `idempotency_key` is sent as the `Idempotency-Key` header. The optional `metadata` dict goes in the body as is and comes back on `PeopleTask.metadata`; `list_people_tasks(metadata=...)` sends each pair as a `metadata.<key>=<value>` query param.
 
 Two helpers sit on top of the plain route methods:
 
@@ -146,9 +146,9 @@ Practical effect:
 
 The repo keeps both Poetry and setuptools metadata:
 
-- `pyproject.toml` names the package `desearch-py` and declares version `1.4.0`
-- `setup.py` packages the import module `desearch_py` and also declares version `1.4.0`
-- `desearch_py.__version__` is `1.4.0`
+- `pyproject.toml` names the package `desearch-py` and declares version `1.5.0`
+- `setup.py` packages the import module `desearch_py` and also declares version `1.5.0`
+- `desearch_py.__version__` is `1.5.0`
 
 This dual-metadata setup supports multiple install flows, but it creates a maintenance obligation: version and dependency drift between the two files would be a release bug.
 

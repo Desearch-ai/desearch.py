@@ -2,7 +2,7 @@
 
 > Status key: ✅ working · ⚠️ degraded · ❌ broken · 🚧 in progress
 
-This inventory is derived from the current source in `desearch_py/api.py`, `desearch_py/models.py`, `pyproject.toml`, and `setup.py`. Current package version: **1.4.0**.
+This inventory is derived from the current source in `desearch_py/api.py`, `desearch_py/models.py`, `pyproject.toml`, and `setup.py`. Current package version: **1.5.0**.
 
 ## Overview
 
@@ -93,11 +93,11 @@ Searches run as background tasks. Only the four search methods are billed (per p
 
 | Method | Endpoint | Status | Notes |
 |---|---|---|---|
-| `x_profile_search` | `POST /desearch/people/search/x` | ✅ | Typed `XProfileSearchFilters` or a dict. Optional `Idempotency-Key`. Returns `PeopleTask`. |
+| `x_profile_search` | `POST /desearch/people/search/x` | ✅ | Typed `XProfileSearchFilters` or a dict. Optional `metadata` labels and `Idempotency-Key`. Returns `PeopleTask` (with `metadata`). |
 | `youtube_creator_search` | `POST /desearch/people/search/youtube` | ✅ | Typed `YouTubeCreatorSearchFilters` or a dict. Optional `Idempotency-Key`. |
 | `linkedin_profile_search` | `POST /desearch/people/search/linkedin` | ✅ | Typed `LinkedInProfileSearchFilters` or a dict. Optional `Idempotency-Key`. |
 | `tiktok_creator_search` | `POST /desearch/people/search/tiktok` | ✅ | Typed `TikTokCreatorSearchFilters` or a dict. Optional `Idempotency-Key`. |
-| `list_people_tasks` | `GET /desearch/people/tasks` | ✅ | `platform`, `status` (list or comma string), `limit`, `cursor`. |
+| `list_people_tasks` | `GET /desearch/people/tasks` | ✅ | `platform`, `status` (list or comma string), `limit`, `cursor`, and a `metadata` filter sent as `metadata.<key>=<value>` params. |
 | `get_people_task` | `GET /desearch/people/tasks/{task_id}` | ✅ | Returns `PeopleTask`. |
 | `get_people_results` | `GET /desearch/people/tasks/{task_id}/results` | ✅ | One page; pass `next_cursor` back as `cursor`. |
 | `pause_people_task` / `resume_people_task` / `cancel_people_task` | `POST /desearch/people/tasks/{task_id}/{pause,resume,cancel}` | ✅ | HTTP 409 raises `PeopleTaskConflictError` with the task's current state. |
@@ -131,9 +131,9 @@ Searches run as background tasks. Only the four search methods are billed (per p
 
 | Surface | Status | Notes |
 |---|---|---|
-| Poetry metadata in `pyproject.toml` | ✅ | Declares package name `desearch-py`, version `1.4.0`, and runtime deps. |
-| setuptools metadata in `setup.py` | ✅ | Declares import package `desearch_py`, version `1.4.0`, and package data. |
-| Version parity between Poetry and setuptools | ✅ | `pyproject.toml`, `setup.py`, and `desearch_py.__version__` currently declare `1.4.0`. |
+| Poetry metadata in `pyproject.toml` | ✅ | Declares package name `desearch-py`, version `1.5.0`, and runtime deps. |
+| setuptools metadata in `setup.py` | ✅ | Declares import package `desearch_py`, version `1.5.0`, and package data. |
+| Version parity between Poetry and setuptools | ✅ | `pyproject.toml`, `setup.py`, and `desearch_py.__version__` currently declare `1.5.0`. |
 | Sphinx source files | ✅ | `docs/conf.py`, `docs/index.rst`, `docs/Makefile`, and `docs/make.bat` are present. |
 | Sphinx branding correctness | ❌ | `docs/conf.py` and generated `docs/_build/` still carry legacy `datura-py` / `Leva` metadata. |
 

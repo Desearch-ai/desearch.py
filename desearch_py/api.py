@@ -1009,6 +1009,7 @@ class Desearch:
         min_score: Optional[int] = None,
         exclude: Optional[List[str]] = None,
         filters: Optional[Union[XProfileSearchFilters, Dict[str, Any]]] = None,
+        metadata: Optional[Dict[str, str]] = None,
         *,
         idempotency_key: Optional[str] = None,
         include_metadata: bool = False,
@@ -1032,6 +1033,11 @@ class Desearch:
             exclude (Optional[List[str]]): Handles to leave out, e.g. people you already contacted.
             filters (Optional[Union[XProfileSearchFilters, Dict[str, Any]]]): ``min_followers``,
                 ``max_followers``, ``verified_only``, ``countries``, ``keywords``, ``exclude_keywords``.
+            metadata (Optional[Dict[str, str]]): Your own labels for this search, e.g.
+                ``{"campaign": "q4-outbound"}``. At most 10 keys; keys are 1-40 characters of
+                a-z, 0-9, ``_``, ``.`` or ``-``; values are strings of at most 200 characters.
+                Returned as ``task.metadata`` and usable as a :meth:`list_people_tasks` filter.
+                Never used by the search itself.
             idempotency_key (Optional[str]): Sent as the ``Idempotency-Key`` header. Reusing a key
                 returns the earlier task (HTTP 200) and is not charged again.
 
@@ -1045,6 +1051,7 @@ class Desearch:
                 "min_score": min_score,
                 "exclude": exclude,
                 "filters": filters,
+                "metadata": metadata,
             }
         )
         return await self._create_people_search(
@@ -1058,6 +1065,7 @@ class Desearch:
         min_score: Optional[int] = None,
         exclude: Optional[List[str]] = None,
         filters: Optional[Union[YouTubeCreatorSearchFilters, Dict[str, Any]]] = None,
+        metadata: Optional[Dict[str, str]] = None,
         *,
         idempotency_key: Optional[str] = None,
         include_metadata: bool = False,
@@ -1075,6 +1083,11 @@ class Desearch:
             exclude (Optional[List[str]]): Handles to leave out.
             filters (Optional[Union[YouTubeCreatorSearchFilters, Dict[str, Any]]]): ``min_subscribers``,
                 ``max_subscribers``, ``countries``, ``require_contact``, ``keywords``, ``exclude_keywords``.
+            metadata (Optional[Dict[str, str]]): Your own labels for this search, e.g.
+                ``{"campaign": "q4-outbound"}``. At most 10 keys; keys are 1-40 characters of
+                a-z, 0-9, ``_``, ``.`` or ``-``; values are strings of at most 200 characters.
+                Returned as ``task.metadata`` and usable as a :meth:`list_people_tasks` filter.
+                Never used by the search itself.
             idempotency_key (Optional[str]): Sent as the ``Idempotency-Key`` header. Reusing a key
                 returns the earlier task (HTTP 200) and is not charged again.
 
@@ -1088,6 +1101,7 @@ class Desearch:
                 "min_score": min_score,
                 "exclude": exclude,
                 "filters": filters,
+                "metadata": metadata,
             }
         )
         return await self._create_people_search(
@@ -1101,6 +1115,7 @@ class Desearch:
         min_score: Optional[int] = None,
         exclude: Optional[List[str]] = None,
         filters: Optional[Union[LinkedInProfileSearchFilters, Dict[str, Any]]] = None,
+        metadata: Optional[Dict[str, str]] = None,
         *,
         idempotency_key: Optional[str] = None,
         include_metadata: bool = False,
@@ -1118,6 +1133,11 @@ class Desearch:
             exclude (Optional[List[str]]): Handles to leave out.
             filters (Optional[Union[LinkedInProfileSearchFilters, Dict[str, Any]]]): ``min_followers``,
                 ``max_followers``, ``countries``, ``keywords``, ``exclude_keywords``.
+            metadata (Optional[Dict[str, str]]): Your own labels for this search, e.g.
+                ``{"campaign": "q4-outbound"}``. At most 10 keys; keys are 1-40 characters of
+                a-z, 0-9, ``_``, ``.`` or ``-``; values are strings of at most 200 characters.
+                Returned as ``task.metadata`` and usable as a :meth:`list_people_tasks` filter.
+                Never used by the search itself.
             idempotency_key (Optional[str]): Sent as the ``Idempotency-Key`` header. Reusing a key
                 returns the earlier task (HTTP 200) and is not charged again.
 
@@ -1131,6 +1151,7 @@ class Desearch:
                 "min_score": min_score,
                 "exclude": exclude,
                 "filters": filters,
+                "metadata": metadata,
             }
         )
         return await self._create_people_search(
@@ -1144,6 +1165,7 @@ class Desearch:
         min_score: Optional[int] = None,
         exclude: Optional[List[str]] = None,
         filters: Optional[Union[TikTokCreatorSearchFilters, Dict[str, Any]]] = None,
+        metadata: Optional[Dict[str, str]] = None,
         *,
         idempotency_key: Optional[str] = None,
         include_metadata: bool = False,
@@ -1161,6 +1183,11 @@ class Desearch:
             exclude (Optional[List[str]]): Handles to leave out.
             filters (Optional[Union[TikTokCreatorSearchFilters, Dict[str, Any]]]): ``min_followers``,
                 ``max_followers``, ``require_contact``, ``keywords``, ``exclude_keywords``.
+            metadata (Optional[Dict[str, str]]): Your own labels for this search, e.g.
+                ``{"campaign": "q4-outbound"}``. At most 10 keys; keys are 1-40 characters of
+                a-z, 0-9, ``_``, ``.`` or ``-``; values are strings of at most 200 characters.
+                Returned as ``task.metadata`` and usable as a :meth:`list_people_tasks` filter.
+                Never used by the search itself.
             idempotency_key (Optional[str]): Sent as the ``Idempotency-Key`` header. Reusing a key
                 returns the earlier task (HTTP 200) and is not charged again.
 
@@ -1174,6 +1201,7 @@ class Desearch:
                 "min_score": min_score,
                 "exclude": exclude,
                 "filters": filters,
+                "metadata": metadata,
             }
         )
         return await self._create_people_search(
@@ -1188,6 +1216,7 @@ class Desearch:
         ] = None,
         limit: Optional[int] = None,
         cursor: Optional[str] = None,
+        metadata: Optional[Dict[str, str]] = None,
         *,
         include_metadata: bool = False,
     ) -> Union[PeopleTaskList, DesearchResponse[PeopleTaskList]]:
@@ -1200,6 +1229,10 @@ class Desearch:
                 comma-separated string (e.g. ``"running,paused"``).
             limit (Optional[int]): Page size (1-100; the API default is 20).
             cursor (Optional[str]): ``next_cursor`` from the previous page.
+            metadata (Optional[Dict[str, str]]): Only tasks whose ``metadata`` has all of these
+                key/value pairs (exact match, at most 3). Each pair is sent as a
+                ``metadata.<key>=<value>`` query parameter. Keep the same filter when you page
+                with ``cursor``.
 
         Returns:
             PeopleTaskList: Tasks and the cursor for the next page (``None`` on the last page).
@@ -1217,11 +1250,15 @@ class Desearch:
             }.items()
             if v is not None
         }
+        for key, value in (metadata or {}).items():
+            params[f"metadata.{key}"] = str(value)
         result = await self._handle_request(
             "GET", url, params=params, include_metadata=include_metadata
         )
-        data, metadata = self._split_response(result, include_metadata)
-        return self._with_metadata(PeopleTaskList(**data), metadata, include_metadata)
+        data, cost_metadata = self._split_response(result, include_metadata)
+        return self._with_metadata(
+            PeopleTaskList(**data), cost_metadata, include_metadata
+        )
 
     async def get_people_task(
         self,

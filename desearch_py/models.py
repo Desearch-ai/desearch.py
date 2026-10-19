@@ -488,7 +488,9 @@ class XTrendsResponse(BaseModel):
 #
 # Bodies for POST /desearch/people/search/{x,youtube,linkedin,tiktok}. The API
 # validates ranges (count 5-200, min_score 0-100, query 3-1000 characters) and
-# returns 422 when a value is out of range or a filter is not supported.
+# returns 422 when a value is out of range or a filter is not supported. It also
+# validates ``metadata``: at most 10 keys, keys of 1-40 characters from a-z, 0-9,
+# '_', '.' and '-', and string values of at most 200 characters.
 
 
 class XProfileSearchFilters(BaseModel):
@@ -540,6 +542,7 @@ class _PeopleSearchRequest(BaseModel):
     count: Optional[int] = None
     min_score: Optional[int] = None
     exclude: Optional[List[str]] = None
+    metadata: Optional[Dict[str, str]] = None
 
 
 class XProfileSearchRequest(_PeopleSearchRequest):
@@ -636,7 +639,8 @@ class PeopleTask(BaseModel):
 
     ``cost_usd`` and ``usage_count`` are set on the response of the call that
     created the search (what that call reserved). ``final_cost_usd`` is what
-    the search cost once it ended.
+    the search cost once it ended. ``metadata`` is the ``metadata`` sent when
+    the search was created (``{}`` when none).
     """
 
     model_config = ConfigDict(extra="allow")
@@ -649,6 +653,7 @@ class PeopleTask(BaseModel):
     query: str
     count: int
     result_count: int
+    metadata: Dict[str, str] = Field(default_factory=dict)
     interpreted: Optional[Dict[str, Any]] = None
     progress: Dict[str, Any] = Field(default_factory=dict)
     errors: List[Any] = Field(default_factory=list)
