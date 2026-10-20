@@ -1,5 +1,6 @@
 import json
 import unittest
+from pathlib import Path
 
 from aiohttp import web
 from pydantic import ValidationError
@@ -635,6 +636,56 @@ class PeopleTaskRouteTests(unittest.IsolatedAsyncioTestCase):
             ],
         )
         self.assertEqual(PeopleScore().unverified_criteria, [])
+
+    def test_unverified_criteria_read_is_disqualifier_before_the_keyword_rule(self):
+        score = PeopleScore(
+            criteria_checks=[
+                # The flag wins over the wording, both ways.
+                {
+                    "criterion": "Profile fit: excluding agencies is fine",
+                    "verdict": "met",
+                    "is_disqualifier": False,
+                },
+                {
+                    "criterion": "Agency owners",
+                    "verdict": "met",
+                    "is_disqualifier": True,
+                },
+                {
+                    "criterion": "Disqualifier: students",
+                    "verdict": "unknown",
+                    "is_disqualifier": True,
+                },
+                # No flag (scored before it existed) or null: the keyword rule.
+                {"criterion": "Disqualifier: recruiters", "verdict": "met"},
+                {
+                    "criterion": "Not qualified leads",
+                    "verdict": "met",
+                    "is_disqualifier": None,
+                },
+                {"criterion": "Topic signal: excludes nothing", "verdict": "met"},
+            ]
+        )
+        self.assertEqual(
+            [check.criterion for check in score.unverified_criteria],
+            ["Agency owners", "Disqualifier: recruiters", "Not qualified leads"],
+        )
+        self.assertTrue(score.criteria_checks[1].disqualifier)
+        self.assertFalse(score.criteria_checks[0].disqualifier)
+        self.assertIsNone(score.criteria_checks[3].is_disqualifier)
+
+    def test_keyword_rule_matches_the_api_cases(self):
+        # Copy of desearch-public-api tests/fixtures/disqualifier_cases.json, the
+        # cases that lock the API's Python port to the worker's JavaScript regex.
+        cases = json.loads(
+            (Path(__file__).parent / "fixtures" / "disqualifier_cases.json").read_text(
+                encoding="utf-8"
+            )
+        )
+        self.assertGreater(len(cases), 20)
+        for case in cases:
+            check = PeopleCriterionCheck(criterion=case["text"], verdict="unknown")
+            self.assertEqual(check.disqualifier, case["expected"], repr(case["text"]))
 
     def test_criterion_check_requires_a_criterion_and_a_verdict(self):
         with self.assertRaises(ValidationError):
