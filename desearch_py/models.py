@@ -775,14 +775,24 @@ class PeopleEvidence(BaseModel):
     metrics: Optional[Dict[str, Any]] = None
 
 
+# Fallback for checks without `is_disqualifier`: the worker's keyword rule, which
+# also sets the flag. Same rule as the API's CSV `unverified_criteria` column;
+# re.ASCII keeps `\b` on ASCII word characters, like JavaScript.
+_DISQUALIFIER_CRITERION = re.compile(
+    r"\b(disqualif(?:y|ier|iers)|exclude|excluding|not a fit|not qualified)\b",
+    re.IGNORECASE | re.ASCII,
+)
+
+
 class PeopleCriterionCheck(BaseModel):
     """One of the search's criteria, checked against the person's own profile and posts.
 
     ``verdict`` (a ``PeopleCriterionVerdict`` value): ``met`` when a quote
     from the profile or a source shows it, ``not_met`` when the evidence
     contradicts it, ``unknown`` when nothing found shows it either way. For a
-    ``Disqualifier:`` criterion, ``met`` means it applies. ``quote`` and
-    ``source_url`` back a ``met`` verdict.
+    disqualifier (``is_disqualifier``), ``met`` means it applies. ``quote`` and
+    ``source_url`` back a ``met`` verdict. ``is_disqualifier`` is ``None`` on
+    checks scored before the field existed.
     """
 
     model_config = ConfigDict(extra="allow")
@@ -792,12 +802,15 @@ class PeopleCriterionCheck(BaseModel):
     quote: Optional[str] = None
     source_url: Optional[str] = None
     reason: str = ""
+    is_disqualifier: Optional[bool] = None
 
-
-# Same rule as the API's CSV `unverified_criteria` column and the console.
-_DISQUALIFIER_CRITERION = re.compile(
-    r"\b(disqualif(?:y|ier|iers)|exclude|excluding|not a fit|not qualified)\b", re.I
-)
+    @property
+    def disqualifier(self) -> bool:
+        """True when this criterion is a disqualifier: ``is_disqualifier``
+        when the API set it, else the API's keyword rule."""
+        if isinstance(self.is_disqualifier, bool):
+            return self.is_disqualifier
+        return bool(_DISQUALIFIER_CRITERION.search(self.criterion or ""))
 
 
 class PeopleScore(BaseModel):
@@ -805,8 +818,8 @@ class PeopleScore(BaseModel):
 
     ``criteria_checks`` has one check per criterion. It is information only:
     a qualified result can still have ``unknown`` criteria. ``fully_verified``
-    is true when every criterion is ``met`` and no ``Disqualifier:``
-    criterion is. Results scored before 2026-10-20 have no checks and
+    is true when every criterion is ``met`` and no disqualifier
+    (``is_disqualifier``) is. Results scored before 2026-10-20 have no checks and
     ``fully_verified`` ``None``.
     """
 
@@ -827,17 +840,18 @@ class PeopleScore(BaseModel):
     @property
     def unverified_criteria(self) -> List[PeopleCriterionCheck]:
         """The checks this result does not confirm: every criterion whose
-        verdict is not ``met``, plus every ``Disqualifier:`` criterion that is
-        ``met`` (it applies). Their ``criterion`` texts are what the CSV
-        export lists in ``unverified_criteria``. A returned check with verdict
-        ``met`` is a disqualifier that applies. Information only: the result
-        still qualified."""
+        verdict is not ``met``, plus every disqualifier that is ``met`` (it
+        applies). Their ``criterion`` texts are what the CSV export lists in
+        ``unverified_criteria``. A returned check with verdict ``met`` is a
+        disqualifier that applies. A check without ``is_disqualifier`` (scored
+        before it existed) uses the API's keyword rule. Information only: the
+        result still qualified."""
         return [
             check
             for check in self.criteria_checks
             if check.criterion
             and (check.verdict == PeopleCriterionVerdict.MET.value)
-            == bool(_DISQUALIFIER_CRITERION.search(check.criterion))
+            == check.disqualifier
         ]
 
 

@@ -1,0 +1,118 @@
+[
+  {
+    "text": "- Disqualifier: x",
+    "expected": true
+  },
+  {
+    "text": "\"Disqualifier: exclude agencies\"",
+    "expected": true
+  },
+  {
+    "text": "Disqualifiers: x",
+    "expected": true
+  },
+  {
+    "text": "Disqualifiers:",
+    "expected": true
+  },
+  {
+    "text": "Disqualifier - x",
+    "expected": true
+  },
+  {
+    "text": "Disqualifier",
+    "expected": true
+  },
+  {
+    "text": "Profile: no disqualifier mentioned",
+    "expected": true
+  },
+  {
+    "text": "\u00a0Disqualifier: x",
+    "expected": true
+  },
+  {
+    "text": "Not a recruiter... excluding recruiters.",
+    "expected": true
+  },
+  {
+    "text": "Profile fit: Find London-based Heads of Sales at B2B fintech startups through their LinkedIn posts and public profile headlines, excluding recruiters.",
+    "expected": true
+  },
+  {
+    "text": "DISQUALIFY: bots",
+    "expected": true
+  },
+  {
+    "text": "not a fit for agencies",
+    "expected": true
+  },
+  {
+    "text": "Not Qualified leads",
+    "expected": true
+  },
+  {
+    "text": "excludes agencies",
+    "expected": false
+  },
+  {
+    "text": "excluded agencies",
+    "expected": false
+  },
+  {
+    "text": "disqualified",
+    "expected": false
+  },
+  {
+    "text": "disqualifying",
+    "expected": false
+  },
+  {
+    "text": "Disqualification",
+    "expected": false
+  },
+  {
+    "text": "nonexclude",
+    "expected": false
+  },
+  {
+    "text": "exclude_list",
+    "expected": false
+  },
+  {
+    "text": "\u00e9exclude",
+    "expected": true
+  },
+  {
+    "text": "exclude\u00e9",
+    "expected": true
+  },
+  {
+    "text": "\u00c9XCLUDE",
+    "expected": false
+  },
+  {
+    "text": "exc\u017fude",
+    "expected": false
+  },
+  {
+    "text": "Disqualifier\u200b: x",
+    "expected": true
+  },
+  {
+    "text": "Kexclude",
+    "expected": false
+  },
+  {
+    "text": "ICP fit: developers",
+    "expected": false
+  },
+  {
+    "text": "exclude\u00a0more",
+    "expected": true
+  },
+  {
+    "text": "a mid-text disqualifier in the sentence",
+    "expected": true
+  }
+]
