@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from enum import Enum
 from typing import Any, Dict, Generic, List, Optional, TypeVar, Union
 
@@ -80,6 +81,53 @@ PEOPLE_TASK_ENDED_STATUSES = frozenset(
         PeopleTaskStatus.EXPIRED.value,
     }
 )
+
+
+class PeopleCompletionReason(str, Enum):
+    """Why a People Search ended (``PeopleTask.completion_reason``).
+
+    ``COUNT_REACHED``: it found ``count`` profiles. ``ROUNDS_EXHAUSTED``: it ran
+    every search it planned and found fewer. ``NO_CANDIDATES``: its searches
+    found nobody to check. ``ZERO_QUALIFIED``: it checked the people its
+    searches found and none fit. ``CANDIDATE_BUDGET``, ``COST_LIMIT`` and
+    ``TIME_LIMIT``: a budget stopped it (see ``PeopleTask.coverage_limited``).
+    ``CANCELLED``: it was cancelled. ``FAILED``: an error ended it.
+    """
+
+    COUNT_REACHED = "count_reached"
+    ROUNDS_EXHAUSTED = "rounds_exhausted"
+    NO_CANDIDATES = "no_candidates"
+    ZERO_QUALIFIED = "zero_qualified"
+    CANDIDATE_BUDGET = "candidate_budget"
+    COST_LIMIT = "cost_limit"
+    TIME_LIMIT = "time_limit"
+    CANCELLED = "cancelled"
+    FAILED = "failed"
+
+
+class PeopleCriterionVerdict(str, Enum):
+    """Verdict of one ``PeopleCriterionCheck``."""
+
+    MET = "met"
+    NOT_MET = "not_met"
+    UNKNOWN = "unknown"
+
+
+class PeopleEnrichment(str, Enum):
+    """``Person.attributes["enrichment"]``: whether the profile was read after search."""
+
+    OK = "ok"
+    FAILED = "failed"
+
+
+class PeopleEnrichmentError(str, Enum):
+    """``Person.attributes["enrichment_error"]``: why the profile could not be read."""
+
+    NOT_FOUND = "not_found"
+    RATE_LIMITED = "rate_limited"
+    TIMEOUT = "timeout"
+    UPSTREAM_ERROR = "upstream_error"
+    REQUEST_ERROR = "request_error"
 
 
 class PeopleProfileSort(str, Enum):
@@ -634,6 +682,29 @@ class PeopleTaskCreatedBy(BaseModel):
     via: Optional[str] = None
 
 
+class PeopleTaskWarning(BaseModel):
+    """Something that made part of a search less reliable without failing it.
+
+    ``code`` ``partial_enrichment``: some candidates' profiles could not be
+    read after search, so they were scored on what the search returned
+    (their results have ``attributes["enrichment"] == "failed"``).
+    ``by_reason`` counts failed lookups by reason on LinkedIn and TikTok
+    (``not_found``, ``rate_limited``, ``timeout``, ``upstream_error``,
+    ``request_error``) and by source on YouTube (``about_page_failed``,
+    ``innertube_failed``).
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    code: str
+    platform: Optional[str] = None
+    attempted: Optional[int] = None
+    enriched: Optional[int] = None
+    failed: Optional[int] = None
+    by_reason: Dict[str, int] = Field(default_factory=dict)
+    message: Optional[str] = None
+
+
 class PeopleTask(BaseModel):
     """A People Search task. Timestamps are ISO 8601 strings.
 
@@ -641,6 +712,13 @@ class PeopleTask(BaseModel):
     created the search (what that call reserved). ``final_cost_usd`` is what
     the search cost once it ended. ``metadata`` is the ``metadata`` sent when
     the search was created (``{}`` when none).
+
+    ``completion_reason`` says why the search ended (a
+    ``PeopleCompletionReason`` value; ``None`` while it is queued, running or
+    paused). ``coverage_limited`` is true when a budget (``cost_limit``,
+    ``candidate_budget`` or ``time_limit``) stopped it before it reached
+    ``count``; ``status`` is still ``completed`` then. ``warnings`` lists what
+    made part of the search less reliable (``[]`` when nothing did).
     """
 
     model_config = ConfigDict(extra="allow")
@@ -657,6 +735,9 @@ class PeopleTask(BaseModel):
     interpreted: Optional[Dict[str, Any]] = None
     progress: Dict[str, Any] = Field(default_factory=dict)
     errors: List[Any] = Field(default_factory=list)
+    completion_reason: Optional[str] = None
+    coverage_limited: bool = False
+    warnings: List[PeopleTaskWarning] = Field(default_factory=list)
     reserved_cost_usd: float
     final_cost_usd: Optional[float] = None
     refunded_usd: Optional[float] = None
@@ -694,7 +775,41 @@ class PeopleEvidence(BaseModel):
     metrics: Optional[Dict[str, Any]] = None
 
 
+class PeopleCriterionCheck(BaseModel):
+    """One of the search's criteria, checked against the person's own profile and posts.
+
+    ``verdict`` (a ``PeopleCriterionVerdict`` value): ``met`` when a quote
+    from the profile or a source shows it, ``not_met`` when the evidence
+    contradicts it, ``unknown`` when nothing found shows it either way. For a
+    ``Disqualifier:`` criterion, ``met`` means it applies. ``quote`` and
+    ``source_url`` back a ``met`` verdict.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    criterion: str
+    verdict: str
+    quote: Optional[str] = None
+    source_url: Optional[str] = None
+    reason: str = ""
+
+
+# Same rule as the API's CSV `unverified_criteria` column and the console.
+_DISQUALIFIER_CRITERION = re.compile(
+    r"\b(disqualif(?:y|ier|iers)|exclude|excluding|not a fit|not qualified)\b", re.I
+)
+
+
 class PeopleScore(BaseModel):
+    """Fit score and reasons.
+
+    ``criteria_checks`` has one check per criterion. It is information only:
+    a qualified result can still have ``unknown`` criteria. ``fully_verified``
+    is true when every criterion is ``met`` and no ``Disqualifier:``
+    criterion is. Results scored before 2026-10-20 have no checks and
+    ``fully_verified`` ``None``.
+    """
+
     model_config = ConfigDict(extra="allow")
 
     value: Optional[float] = None
@@ -706,6 +821,24 @@ class PeopleScore(BaseModel):
     evidence: List[str] = Field(default_factory=list)
     reasons: List[str] = Field(default_factory=list)
     concerns: List[str] = Field(default_factory=list)
+    criteria_checks: List[PeopleCriterionCheck] = Field(default_factory=list)
+    fully_verified: Optional[bool] = None
+
+    @property
+    def unverified_criteria(self) -> List[PeopleCriterionCheck]:
+        """The checks this result does not confirm: every criterion whose
+        verdict is not ``met``, plus every ``Disqualifier:`` criterion that is
+        ``met`` (it applies). Their ``criterion`` texts are what the CSV
+        export lists in ``unverified_criteria``. A returned check with verdict
+        ``met`` is a disqualifier that applies. Information only: the result
+        still qualified."""
+        return [
+            check
+            for check in self.criteria_checks
+            if check.criterion
+            and (check.verdict == PeopleCriterionVerdict.MET.value)
+            == bool(_DISQUALIFIER_CRITERION.search(check.criterion))
+        ]
 
 
 class Person(BaseModel):
@@ -714,6 +847,9 @@ class Person(BaseModel):
     ``links`` items look like ``{"type": "website", "url": ...}`` and
     ``contacts`` items like ``{"type": "email", "value": ...}``.
     ``attributes`` holds platform details such as ``verified`` or ``headline``.
+    On LinkedIn, TikTok and YouTube it also has ``enrichment`` (``ok`` or
+    ``failed``) and, when the profile could not be read, ``enrichment_error``;
+    the ``enrichment`` and ``enrichment_error`` properties read them.
     """
 
     model_config = ConfigDict(extra="allow")
@@ -732,6 +868,22 @@ class Person(BaseModel):
     contacts: List[Dict[str, Any]] = Field(default_factory=list)
     evidence: List[PeopleEvidence] = Field(default_factory=list)
     score: Optional[PeopleScore] = None
+
+    @property
+    def enrichment(self) -> Optional[str]:
+        """``ok`` when the profile was read after search, ``failed`` when it
+        could not be (a ``PeopleEnrichment`` value), or ``None`` when the
+        platform does not report it."""
+        value = self.attributes.get("enrichment")
+        return value if isinstance(value, str) else None
+
+    @property
+    def enrichment_error(self) -> Optional[str]:
+        """Why the profile could not be read (a ``PeopleEnrichmentError``
+        value) when ``enrichment`` is ``failed``. Fields such as location or
+        followers then come from the search hit only or are missing."""
+        value = self.attributes.get("enrichment_error")
+        return value if isinstance(value, str) else None
 
 
 class PeopleResultsPage(BaseModel):

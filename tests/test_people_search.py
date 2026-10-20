@@ -9,17 +9,24 @@ from desearch_py import (
     DesearchAPIError,
     DesearchResponse,
     PeopleChannel,
+    PeopleCompletionReason,
+    PeopleCriterionCheck,
+    PeopleCriterionVerdict,
+    PeopleEnrichment,
+    PeopleEnrichmentError,
     PeopleExportFormat,
     PeoplePlatform,
     PeopleProfileSort,
     PeopleProfilesPage,
     PeopleResultFilters,
     PeopleResultsPage,
+    PeopleScore,
     PeopleTask,
     PeopleTaskConflictError,
     PeopleTaskList,
     PeopleTaskStatus,
     PeopleTaskTimeoutError,
+    PeopleTaskWarning,
     Person,
     TikTokCreatorSearchFilters,
     XProfileSearchFilters,
@@ -449,6 +456,219 @@ class PeopleTaskRouteTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(DesearchAPIError) as caught:
             await client.get_people_results(TASK_ID)
         self.assertEqual(caught.exception.status, 410)
+
+    async def test_task_says_why_it_ended_and_what_was_less_reliable(self):
+        warning = {
+            "code": "partial_enrichment",
+            "platform": "linkedin",
+            "attempted": 20,
+            "enriched": 13,
+            "failed": 7,
+            "by_reason": {"not_found": 7},
+            "message": "7 of 20 LinkedIn profiles could not be read after search; "
+            "those candidates were scored on search data only.",
+        }
+        client = self.make_client(
+            FakeResponse(
+                json_data=_task(
+                    "completed",
+                    platform="linkedin",
+                    search_type="linkedin_profile_search",
+                    count=5,
+                    result_count=5,
+                    completion_reason="count_reached",
+                    coverage_limited=False,
+                    warnings=[warning],
+                )
+            ),
+            FakeResponse(
+                json_data={
+                    "tasks": [
+                        _task(
+                            "completed",
+                            count=50,
+                            result_count=12,
+                            completion_reason="cost_limit",
+                            coverage_limited=True,
+                            warnings=[],
+                        )
+                    ],
+                    "next_cursor": None,
+                }
+            ),
+        )
+        task = await client.get_people_task(TASK_ID)
+        self.assertEqual(task.completion_reason, PeopleCompletionReason.COUNT_REACHED)
+        self.assertEqual(task.completion_reason, "count_reached")
+        self.assertFalse(task.coverage_limited)
+        self.assertEqual(len(task.warnings), 1)
+        self.assertIsInstance(task.warnings[0], PeopleTaskWarning)
+        self.assertEqual(task.warnings[0].code, "partial_enrichment")
+        self.assertEqual(task.warnings[0].platform, "linkedin")
+        self.assertEqual(
+            (
+                task.warnings[0].attempted,
+                task.warnings[0].enriched,
+                task.warnings[0].failed,
+            ),
+            (20, 13, 7),
+        )
+        self.assertEqual(task.warnings[0].by_reason, {"not_found": 7})
+        self.assertTrue(task.warnings[0].message.startswith("7 of 20"))
+
+        page = await client.list_people_tasks(status="completed")
+        limited = page.tasks[0]
+        self.assertEqual(limited.completion_reason, "cost_limit")
+        self.assertTrue(limited.coverage_limited)
+        self.assertEqual(limited.warnings, [])
+
+    async def test_running_and_older_tasks_default_the_new_fields(self):
+        client = self.make_client(FakeResponse(json_data=_task("running")))
+        task = await client.get_people_task(TASK_ID)
+        self.assertIsNone(task.completion_reason)
+        self.assertFalse(task.coverage_limited)
+        self.assertEqual(task.warnings, [])
+
+    async def test_results_carry_criteria_checks_and_the_enrichment_flag(self):
+        checks = [
+            {
+                "criterion": "Profile fit: Software Engineer based in Georgia",
+                "verdict": "met",
+                "quote": "Software Engineer at EPAM Systems",
+                "source_url": "https://www.linkedin.com/in/ana",
+                "reason": "Role and Tbilisi location supplied.",
+            },
+            {
+                "criterion": "Topic signal: coding or development work",
+                "verdict": "unknown",
+                "quote": None,
+                "source_url": None,
+                "reason": "No post shows it.",
+            },
+        ]
+        verified = _person(
+            "ana",
+            platform="linkedin",
+            attributes={"headline": "Software Engineer", "enrichment": "ok"},
+        )
+        verified["score"] = dict(
+            verified["score"], criteria_checks=checks[:1], fully_verified=True
+        )
+        unread = _person(
+            "nino",
+            platform="linkedin",
+            attributes={"enrichment": "failed", "enrichment_error": "not_found"},
+        )
+        unread["score"] = dict(
+            unread["score"], criteria_checks=checks, fully_verified=False
+        )
+        client = self.make_client(
+            FakeResponse(
+                json_data={
+                    "task_id": TASK_ID,
+                    "status": "completed",
+                    "results": [verified, unread],
+                    "next_cursor": "2",
+                    "has_more": False,
+                }
+            )
+        )
+        page = await client.get_people_results(TASK_ID)
+        first, second = page.results
+        self.assertTrue(first.score.fully_verified)
+        self.assertFalse(second.score.fully_verified)
+        self.assertIsInstance(second.score.criteria_checks[0], PeopleCriterionCheck)
+        self.assertEqual(
+            second.score.criteria_checks[0].quote, "Software Engineer at EPAM Systems"
+        )
+        self.assertEqual(
+            [c.criterion for c in second.score.unverified_criteria],
+            ["Topic signal: coding or development work"],
+        )
+        self.assertEqual(first.score.unverified_criteria, [])
+        self.assertEqual(
+            second.score.criteria_checks[1].verdict, PeopleCriterionVerdict.UNKNOWN
+        )
+        self.assertIsNone(second.score.criteria_checks[1].source_url)
+        self.assertEqual(first.enrichment, PeopleEnrichment.OK)
+        self.assertIsNone(first.enrichment_error)
+        self.assertEqual(second.enrichment, "failed")
+        self.assertEqual(second.enrichment_error, PeopleEnrichmentError.NOT_FOUND)
+        self.assertEqual(second.attributes["enrichment_error"], "not_found")
+
+    async def test_results_scored_before_criteria_checks_still_parse(self):
+        old = _person("glowlab", attributes={"verified": True})
+        client = self.make_client(
+            FakeResponse(
+                json_data={
+                    "task_id": TASK_ID,
+                    "status": "completed",
+                    "results": [old],
+                    "next_cursor": "1",
+                    "has_more": False,
+                }
+            )
+        )
+        person = (await client.get_people_results(TASK_ID)).results[0]
+        self.assertEqual(person.score.criteria_checks, [])
+        self.assertIsNone(person.score.fully_verified)
+        self.assertIsNone(person.enrichment)
+        self.assertIsNone(person.enrichment_error)
+
+    def test_unverified_criteria_match_the_csv_column(self):
+        score = PeopleScore(
+            criteria_checks=[
+                {"criterion": "Profile fit: Heads of sales", "verdict": "met"},
+                {"criterion": "Topic signal: outbound", "verdict": "unknown"},
+                {"criterion": "Evidence quality: pipeline posts", "verdict": "not_met"},
+                {"criterion": "Disqualifier: exclude agencies", "verdict": "met"},
+                {"criterion": "Disqualifier: exclude students", "verdict": "unknown"},
+                {"criterion": "Disqualifier: recruiters", "verdict": "not_met"},
+            ]
+        )
+        self.assertEqual(
+            [check.criterion for check in score.unverified_criteria],
+            [
+                "Topic signal: outbound",
+                "Evidence quality: pipeline posts",
+                "Disqualifier: exclude agencies",
+            ],
+        )
+        self.assertEqual(PeopleScore().unverified_criteria, [])
+
+    def test_criterion_check_requires_a_criterion_and_a_verdict(self):
+        with self.assertRaises(ValidationError):
+            PeopleCriterionCheck(verdict="met")
+        check = PeopleCriterionCheck(
+            criterion="Disqualifier: agency", verdict="not_met"
+        )
+        self.assertEqual(check.reason, "")
+        self.assertIsNone(check.quote)
+
+    def test_new_enums_match_the_api_values(self):
+        self.assertEqual(
+            [reason.value for reason in PeopleCompletionReason],
+            [
+                "count_reached",
+                "rounds_exhausted",
+                "no_candidates",
+                "zero_qualified",
+                "candidate_budget",
+                "cost_limit",
+                "time_limit",
+                "cancelled",
+                "failed",
+            ],
+        )
+        self.assertEqual(
+            [verdict.value for verdict in PeopleCriterionVerdict],
+            ["met", "not_met", "unknown"],
+        )
+        self.assertEqual([e.value for e in PeopleEnrichment], ["ok", "failed"])
+        self.assertEqual(
+            [e.value for e in PeopleEnrichmentError],
+            ["not_found", "rate_limited", "timeout", "upstream_error", "request_error"],
+        )
 
     async def test_pause_resume_cancel_post_their_routes(self):
         for action, status in (

@@ -16,6 +16,11 @@ from .models import (
     MediaSize,
     MovedPermanentlyResponse,
     PeopleChannel,
+    PeopleCompletionReason,
+    PeopleCriterionCheck,
+    PeopleCriterionVerdict,
+    PeopleEnrichment,
+    PeopleEnrichmentError,
     PeopleEvidence,
     PeopleExportFormat,
     PeoplePlatform,
@@ -30,6 +35,7 @@ from .models import (
     PeopleTaskLinks,
     PeopleTaskList,
     PeopleTaskStatus,
+    PeopleTaskWarning,
     Person,
     PersonFoundBy,
     Rect,
@@ -82,7 +88,7 @@ from .models import (
     YouTubeCreatorSearchRequest,
 )
 
-__version__ = "1.5.0"
+__version__ = "1.6.0"
 
 __all__ = [
     "Desearch",
@@ -101,6 +107,11 @@ __all__ = [
     "MovedPermanentlyResponse",
     "PEOPLE_TASK_ENDED_STATUSES",
     "PeopleChannel",
+    "PeopleCompletionReason",
+    "PeopleCriterionCheck",
+    "PeopleCriterionVerdict",
+    "PeopleEnrichment",
+    "PeopleEnrichmentError",
     "PeopleEvidence",
     "PeopleExportFormat",
     "PeoplePlatform",
@@ -115,6 +126,7 @@ __all__ = [
     "PeopleTaskLinks",
     "PeopleTaskList",
     "PeopleTaskStatus",
+    "PeopleTaskWarning",
     "Person",
     "PersonFoundBy",
     "Rect",
