@@ -62,6 +62,7 @@ Consequence:
 `_handle_request()` is the common path for most JSON endpoints. It delegates to `_exchange()`, which centralizes:
 
 - session acquisition
+- query param encoding: `None` values are dropped and booleans become `"true"`/`"false"`, because yarl raises `TypeError` for `bool` query values
 - a hardcoded `aiohttp.ClientTimeout(total=120)`
 - HTTP failures as `DesearchAPIError` (status, reason, and response body only; request headers are not attached)
 - JSON decoding
