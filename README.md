@@ -2,7 +2,7 @@
 
 Official async Python SDK for the Desearch API.
 
-`desearch-py` is a thin `aiohttp` client for the Desearch public API. It wraps search, X, extraction, and People Search endpoints behind a single async client class and returns `pydantic` models for most successful responses. The package metadata currently reports **version 1.5.0** and requires **Python 3.9+**.
+`desearch-py` is a thin `aiohttp` client for the Desearch public API. It wraps search, X, extraction, and People Search endpoints behind a single async client class and returns `pydantic` models for most successful responses. The package metadata currently reports **version 1.6.0** and requires **Python 3.9+**.
 
 ## Package purpose
 
@@ -165,6 +165,41 @@ Every search method takes `query`, `count` (5-200), `min_score` (0-100), `exclud
 
 `wait_for_people_task` returns once the status is `completed`, `partial`, `failed`, `cancelled`, or `expired`. Tune it with `poll_interval` and `timeout` (seconds; `timeout=None` waits without a limit). On timeout it raises `PeopleTaskTimeoutError` with the last task state on `.task`. The search keeps running. A paused task stays paused until you resume it (the API cancels it after 7 days), so waiting on one runs until the timeout.
 
+### Reading a finished search
+
+A finished task says why it ended and how complete it is, and each result says which criteria its profile confirms (1.6.0 and later):
+
+```python
+task = await client.wait_for_people_task(task.task_id)
+
+# count_reached, rounds_exhausted, no_candidates, zero_qualified,
+# candidate_budget, cost_limit, time_limit, cancelled or failed.
+print(task.completion_reason)
+if task.coverage_limited:
+    print("A budget stopped the search before `count`: there may be more people.")
+for warning in task.warnings:
+    # partial_enrichment: some profiles could not be read after search.
+    print(warning.code, warning.platform, warning.failed, warning.attempted, warning.by_reason)
+
+async for person in client.iter_people_results(task.task_id):
+    score = person.score
+    # Criteria not confirmed, and disqualifiers that apply (verdict "met").
+    unverified = [
+        f"{check.criterion} ({check.verdict})"
+        for check in (score.unverified_criteria if score else [])
+    ]
+    print(person.handle, score.fully_verified if score else None, unverified)
+    if person.enrichment == "failed":
+        # Scored on the search hit only; enrichment_error says why.
+        print("profile not read:", person.enrichment_error)
+```
+
+- `completion_reason` is `None` while the task is queued, running, or paused (`PeopleCompletionReason` lists the values). A search that a budget stopped is still `completed`, so check `coverage_limited`.
+- `score.criteria_checks` holds one `PeopleCriterionCheck` per criterion: `verdict` is `met`, `not_met`, or `unknown`, with the `quote` and `source_url` behind a `met`. It is information only: a qualified person can still have `unknown` criteria. For a `Disqualifier:` criterion, `met` means it applies.
+- `score.fully_verified` is true when every criterion is `met` and no `Disqualifier:` criterion is. Results scored before 2026-10-20 have no checks and `fully_verified` is `None`.
+- `person.enrichment` and `person.enrichment_error` read `attributes["enrichment"]` and `attributes["enrichment_error"]` (LinkedIn, TikTok, YouTube).
+- `score.unverified_criteria` returns the checks that are not confirmed: every criterion that is not `met`, and every `Disqualifier:` criterion that is `met`. Their `criterion` texts are what the CSV export lists in its new `unverified_criteria` column, next to `fully_verified`.
+
 ### Tagging searches with metadata
 
 Pass `metadata` to label a search with your own keys, for example the campaign or workspace it belongs to. The task returns it as `task.metadata` (`{}` when none was sent), and `list_people_tasks` can filter by it. The search itself never uses it.
@@ -301,7 +336,7 @@ See [People Search](#people-search) for an example, pricing, and filters.
 
 ### Typed exports
 
-The package re-exports the async client plus enums and models from `desearch_py.models`, including `Tool`, `WebTool`, `DateFilter`, `ResultType`, `Sort`, `ResponseData`, `DesearchCostMetadata`, `DesearchResponse`, `TwitterScraperTweet`, `WebSearchResponse`, `WebSearchResultsResponse`, `XLinksSearchResponse`, `XRetweetersResponse`, `XUserPostsResponse`, and `XTrendsResponse`. People Search adds `PeopleTask`, `PeopleTaskList`, `PeopleResultsPage`, `Person`, `PeopleProfile`, `PeopleProfilesPage`, `PeopleResultFilters`, the four request and filters models, the enums `PeoplePlatform`, `PeopleTaskStatus`, `PeopleProfileSort`, `PeopleExportFormat`, and `PeopleChannel`, and the errors `PeopleTaskConflictError` and `PeopleTaskTimeoutError`.
+The package re-exports the async client plus enums and models from `desearch_py.models`, including `Tool`, `WebTool`, `DateFilter`, `ResultType`, `Sort`, `ResponseData`, `DesearchCostMetadata`, `DesearchResponse`, `TwitterScraperTweet`, `WebSearchResponse`, `WebSearchResultsResponse`, `XLinksSearchResponse`, `XRetweetersResponse`, `XUserPostsResponse`, and `XTrendsResponse`. People Search adds `PeopleTask`, `PeopleTaskList`, `PeopleResultsPage`, `Person`, `PeopleProfile`, `PeopleProfilesPage`, `PeopleResultFilters`, the four request and filters models, the result models `PeopleTaskWarning` and `PeopleCriterionCheck`, the enums `PeoplePlatform`, `PeopleTaskStatus`, `PeopleProfileSort`, `PeopleExportFormat`, `PeopleChannel`, `PeopleCompletionReason`, `PeopleCriterionVerdict`, `PeopleEnrichment`, and `PeopleEnrichmentError`, and the errors `PeopleTaskConflictError` and `PeopleTaskTimeoutError`.
 
 ## Architecture overview
 
