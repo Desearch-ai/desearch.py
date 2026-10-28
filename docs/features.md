@@ -2,7 +2,7 @@
 
 > Status key: ✅ working · ⚠️ degraded · ❌ broken · 🚧 in progress
 
-This inventory is derived from the current source in `desearch_py/api.py`, `desearch_py/models.py`, `pyproject.toml`, and `setup.py`. Current package version: **1.6.1**.
+This inventory is derived from the current source in `desearch_py/api.py`, `desearch_py/models.py`, `pyproject.toml`, and `setup.py`. Current package version: **1.7.0**.
 
 ## Overview
 
@@ -130,9 +130,9 @@ Searches run as background tasks. Only the four search methods are billed (per p
 
 | Surface | Status | Notes |
 |---|---|---|
-| Poetry metadata in `pyproject.toml` | ✅ | Declares package name `desearch-py`, version `1.6.1`, and runtime deps. |
+| Poetry metadata in `pyproject.toml` | ✅ | Declares package name `desearch-py`, version `1.7.0`, and runtime deps. |
 | setuptools metadata in `setup.py` | ✅ | Declares import package `desearch_py` and package data; reads the version from `desearch_py.__version__`. |
-| Version parity between Poetry and setuptools | ✅ | `desearch_py.__version__` (`1.6.1`) is the source of truth; `tests/test_version_consistency.py` checks `pyproject.toml` and `setup.py` match it. |
+| Version parity between Poetry and setuptools | ✅ | `desearch_py.__version__` (`1.7.0`) is the source of truth; `tests/test_version_consistency.py` checks `pyproject.toml` and `setup.py` match it. |
 | Sphinx source files | ✅ | `docs/conf.py`, `docs/index.rst`, `docs/Makefile`, and `docs/make.bat` are present. |
 | Sphinx branding correctness | ❌ | `docs/conf.py` and generated `docs/_build/` still carry legacy `datura-py` / `Leva` metadata. |
 
