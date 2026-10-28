@@ -127,6 +127,30 @@ def _raise_without_chain(exc: BaseException) -> None:
     raise exc
 
 
+def _encode_query_params(params: Any) -> Any:
+    """Return query params in a form aiohttp accepts.
+
+    yarl raises ``TypeError`` for ``bool`` values, so booleans become the
+    strings ``"true"`` and ``"false"``. ``None`` values are dropped. A dict
+    stays a dict and a sequence of ``(key, value)`` pairs stays a list; any
+    other value (such as a pre-encoded string) is returned unchanged.
+    """
+    if isinstance(params, dict):
+        pairs = params.items()
+    elif isinstance(params, (list, tuple)):
+        pairs = params
+    else:
+        return params
+    encoded = []
+    for key, value in pairs:
+        if value is None:
+            continue
+        if isinstance(value, bool):
+            value = "true" if value else "false"
+        encoded.append((key, value))
+    return dict(encoded) if isinstance(params, dict) else encoded
+
+
 class Desearch:
     """Async Python SDK client for the Desearch API."""
 
@@ -289,6 +313,8 @@ class Desearch:
         **kwargs: Any,
     ) -> Tuple[Any, DesearchCostMetadata]:
         """Perform one request. HTTP failures raise ``DesearchAPIError`` with no chain."""
+        if "params" in kwargs:
+            kwargs["params"] = _encode_query_params(kwargs["params"])
         client = await self._ensure_session()
         http_error: Optional[DesearchAPIError] = None
         try:
