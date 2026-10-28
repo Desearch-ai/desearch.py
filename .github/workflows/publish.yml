@@ -16,12 +16,44 @@ jobs:
 
     steps:
     - name: Check out the code
-      uses: actions/checkout@v2
+      uses: actions/checkout@v4
 
     - name: Set up Python
-      uses: actions/setup-python@v2
+      uses: actions/setup-python@v5
       with:
         python-version: '3.x'  # Specify your Python version
+
+    - name: Verify tag matches package version
+      env:
+        TAG_NAME: ${{ github.ref_name }}
+      run: |
+        python3 - <<'PY'
+        import os
+        import re
+        import sys
+
+        tag = os.environ["TAG_NAME"]
+        tag_version = tag[1:] if tag.startswith("v") else tag
+
+        with open("desearch_py/__init__.py", encoding="utf-8") as f:
+            content = f.read()
+        match = re.search(
+            r'^__version__\s*=\s*["\']([^"\']+)["\']', content, re.MULTILINE
+        )
+        if not match:
+            print("::error::Unable to find __version__ in desearch_py/__init__.py")
+            sys.exit(1)
+
+        version = match.group(1)
+        if tag_version != version:
+            print(
+                f"::error::Tag {tag} does not match __version__ {version} "
+                f"in desearch_py/__init__.py"
+            )
+            sys.exit(1)
+
+        print(f"Tag {tag} matches __version__ {version}")
+        PY
 
     - name: Install dependencies
       run: |
