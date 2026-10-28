@@ -117,31 +117,13 @@ class AiSearchToolTests(unittest.IsolatedAsyncioTestCase):
             [member.value for member in Tool] + [member.value for member in WebTool],
         )
 
-    def test_sdk_and_docs_do_not_mention_youtube(self):
-        repo_root = Path(__file__).resolve().parents[1]
-        scan_paths = [
-            repo_root / "desearch_py",
-            repo_root / "README.md",
-            repo_root / "docs",
-            repo_root / "setup.py",
-            repo_root / "pyproject.toml",
-        ]
-        offenders = []
-        for scan_path in scan_paths:
-            files = scan_path.rglob("*") if scan_path.is_dir() else [scan_path]
-            for path in files:
-                if not path.is_file():
-                    continue
-                if path.suffix.lower() in {".png", ".inv", ".pickle", ".doctree"}:
-                    continue
-                try:
-                    text = path.read_text(encoding="utf-8")
-                except (UnicodeDecodeError, OSError):
-                    continue
-                if FORBIDDEN in text.lower():
-                    offenders.append(str(path.relative_to(repo_root)))
-        self.assertEqual(offenders, [])
-
+    def test_ai_search_tool_options_do_not_offer_youtube(self):
+        # The YouTube AI-search tool is retired. People Search's YouTube Creator
+        # Search is a separate product and may be mentioned, so this checks the
+        # AI-search tool options only, not every file.
+        offered = [member.value.lower() for member in Tool] + [member.value.lower() for member in WebTool]
+        offered += [member.name.lower() for member in Tool] + [member.name.lower() for member in WebTool]
+        self.assertFalse([value for value in offered if FORBIDDEN in value])
 
 if __name__ == "__main__":
     unittest.main()
