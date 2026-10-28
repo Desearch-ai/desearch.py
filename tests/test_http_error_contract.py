@@ -1,5 +1,6 @@
 import traceback
 import unittest
+from http import HTTPStatus
 from typing import Any, List, Optional, cast
 
 from aiohttp import web
@@ -158,9 +159,9 @@ class HttpErrorContractTests(unittest.IsolatedAsyncioTestCase):
     def assert_error_surface(self, error, expected_body):
         self.assertIsInstance(error, DesearchAPIError)
         self.assertEqual(error.status, 422)
-        self.assertEqual(error.message, "Unprocessable Entity")
+        self.assertEqual(error.message, HTTPStatus(422).phrase)
         self.assertEqual(error.body, expected_body)
-        self.assertEqual(error.args, (422, "Unprocessable Entity", expected_body))
+        self.assertEqual(error.args, (422, HTTPStatus(422).phrase, expected_body))
         self.assertIn("422", str(error))
         self.assertIn(expected_body, str(error))
         self.assertIn("422", repr(error))
@@ -231,7 +232,7 @@ class HttpErrorContractTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(empty_caught.exception.status, 422)
         self.assertEqual(empty_caught.exception.body, "")
         self.assertEqual(
-            empty_caught.exception.args, (422, "Unprocessable Entity", "")
+            empty_caught.exception.args, (422, HTTPStatus(422).phrase, "")
         )
 
     async def test_affected_public_methods_keep_successful_response_shapes(self):
