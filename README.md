@@ -2,7 +2,7 @@
 
 Official async Python SDK for the Desearch API.
 
-`desearch-py` is a thin `aiohttp` client for the Desearch public API. It wraps search, X, extraction, and People Search endpoints behind a single async client class and returns `pydantic` models for most successful responses. The package metadata currently reports **version 1.7.0** and requires **Python 3.10+**. See [CHANGELOG.md](CHANGELOG.md) for unreleased and breaking changes.
+`desearch-py` is a thin `aiohttp` client for the Desearch public API. It wraps AI search, the Search API, X, TikTok, Instagram, Facebook, extraction, People Search, and the public network stats behind a single async client class and returns `pydantic` models for most successful responses. The package metadata currently reports **version 1.8.0** and requires **Python 3.10+**. See [CHANGELOG.md](CHANGELOG.md) for unreleased and breaking changes.
 
 ## Package purpose
 
@@ -77,6 +77,8 @@ print(response.metadata.currency)
 
 The SDK reads metadata from the same API response headers (`X-Desearch-Cost-Usd`, for example `0.00015`, plus `X-Desearch-Usage-Count`, `X-Desearch-Service`, and `X-Desearch-Currency`). Missing or malformed numeric headers are exposed as `None` instead of breaking a successful API call.
 
+`response.metadata.next_cursor` holds the `x-desearch-next-cursor` header, which the TikTok, Instagram, and Facebook list methods send when another page exists. See [Pagination](#pagination).
+
 ### Reuse the client manually
 
 ```python
@@ -95,6 +97,128 @@ async def main() -> None:
 
 asyncio.run(main())
 ```
+
+## Search API
+
+`search_api` calls `POST /search`: it searches the web and returns ranked pages, each with the passage that best matches the query.
+
+```python
+from desearch_py import SearchApiMode
+
+response = await client.search_api(
+    "Who won the 2024 Nobel Prize in Physics?",
+    mode=SearchApiMode.FAST,  # or "balanced" (the API default)
+    count=10,                 # 10, 15 or 20
+    start_date="2024-01-01",  # optional, YYYY-MM-DD
+    page_text=False,          # True adds the full page text
+)
+for result in response.results:
+    print(result.title, result.url, result.published_date)
+    print(result.highlights)
+print(response.cost_usd, response.currency)
+```
+
+Unset arguments are not sent, so the API defaults apply (`mode="balanced"`, `count=10`, `highlights=True`, `page_text=False`). The SDK has no method named plain `search`.
+
+## TikTok, Instagram, and Facebook
+
+Public posts, profiles, comments, and hashtags. Path parameters (IDs, usernames, tags) are percent-encoded, so an Instagram post URL or an ID that contains `/` works as is.
+
+| Method | Route | Returns | Pages with `cursor` |
+|---|---|---|---|
+| `tiktok_search(query, count=None, cursor=None, sort=None)` | `POST /desearch/tiktok/search` | `List[TikTokPost]` | yes |
+| `tiktok_post_by_id(id)` | `GET /desearch/tiktok/post/{id}` | `TikTokPost` | no |
+| `tiktok_profile(username)` | `GET /desearch/tiktok/profile/{username}` | `TikTokProfile` | no |
+| `tiktok_profile_posts(username, count=None, cursor=None)` | `GET /desearch/tiktok/profile/{username}/posts` | `List[TikTokPost]` | yes |
+| `tiktok_comments(video_id, count=None, cursor=None)` | `GET /desearch/tiktok/comments/{video_id}` | `List[TikTokComment]` | yes |
+| `tiktok_hashtag(tag, count=None, cursor=None)` | `GET /desearch/tiktok/hashtag/{tag}` | `List[TikTokPost]` | yes |
+| `tiktok_trending(region=None, count=None)` | `GET /desearch/tiktok/trending` | `List[TikTokPost]` | no |
+| `instagram_search(query, count=None)` | `POST /desearch/instagram/search` | `List[InstagramSearchResult]` | no |
+| `instagram_media(id)` | `GET /desearch/instagram/media/{id}` | `InstagramMedia` | no |
+| `instagram_profile(username)` | `GET /desearch/instagram/profile/{username}` | `InstagramProfile` | no |
+| `instagram_profile_posts(username, count=None, cursor=None)` | `GET /desearch/instagram/profile/{username}/posts` | `List[InstagramMedia]` | yes |
+| `instagram_comments(shortcode, count=None, cursor=None)` | `GET /desearch/instagram/comments/{shortcode}` | `List[InstagramComment]` | yes |
+| `instagram_hashtag(tag, count=None, cursor=None)` | `GET /desearch/instagram/hashtag/{tag}` | `List[InstagramMedia]` | yes |
+| `facebook_search(query, count=None, cursor=None)` | `POST /desearch/facebook/search` | `List[FacebookPost]` (Ad Library records) | yes |
+| `facebook_post_by_id(id)` | `GET /desearch/facebook/post/{id}` | `FacebookPost` | no |
+| `facebook_profile(profile_id)` | `GET /desearch/facebook/profile/{profile_id}` | `FacebookProfile` | no |
+| `facebook_profile_posts(profile_id, count=None, cursor=None)` | `GET /desearch/facebook/profile/{profile_id}/posts` | `List[FacebookPost]` | yes |
+| `facebook_comments(post_id, count=None, cursor=None)` | `GET /desearch/facebook/comments/{post_id}` | `List[FacebookComment]` | yes |
+| `facebook_hashtag(tag, count=None, cursor=None)` | `GET /desearch/facebook/hashtag/{tag}` | `List[FacebookPost]` (Ad Library records) | yes |
+
+Every method also takes the keyword-only `include_metadata`. `count` is a maximum (1-100); the API default is 10 for the three search methods and 20 elsewhere. Model fields keep the API's camelCase names (`createTime`, `playCount`, `fullName`), and every field is optional because the public sources do not always send it.
+
+- Pass usernames without `@` and hashtags without `#`.
+- `TikTokPost.id` is the video ID that `tiktok_comments` takes. `instagram_comments` takes the post shortcode (`InstagramMedia.shortcode`, the code in `instagram.com/p/<shortcode>/`); a numeric media ID returns 404.
+- `facebook_search` and `facebook_hashtag` search the public Meta Ad Library, not organic posts. Their results set the ad fields of `FacebookPost`: `linkUrl`, `cta`, `headline`, `linkDescription`, `endDate`, `active`, and `platforms`.
+- `instagram_search` finds profiles and returns one page; the API rejects a cursor there, so the method takes none.
+- Like `x_search`, a list method returns the raw body (a `dict`) when the API does not answer with a list.
+
+### Pagination
+
+List methods return one page. The next-page cursor comes back in the `x-desearch-next-cursor` response header, which the SDK exposes as `metadata.next_cursor` when you pass `include_metadata=True`:
+
+```python
+import asyncio
+
+from desearch_py import Desearch
+
+
+async def main() -> None:
+    async with Desearch(api_key="your_api_key") as client:
+        cursor = None
+        for _ in range(3):  # read up to three pages
+            page = await client.tiktok_hashtag(
+                "ai", count=20, cursor=cursor, include_metadata=True
+            )
+            for post in page.data:
+                print(post.id, post.text)
+            cursor = page.metadata.next_cursor
+            if cursor is None:  # no header: this was the last page
+                break
+
+
+asyncio.run(main())
+```
+
+- Send the cursor back unchanged, to the same method with the same target (username, tag, post ID, or query; for `tiktok_search`, also the same `sort`). It is opaque: never build, edit, or reuse one elsewhere.
+- A cursor is valid for 24 hours. An expired cursor, one from another route or target, or any value the API did not issue gets HTTP 422 (raised as `DesearchAPIError`) and is not charged.
+- `next_cursor` is `None` on the last page. A page shorter than `count` is not the end: one request reads one provider page, which can be smaller (about 3 for Facebook profile posts, 10 for Facebook comments, 12 for Instagram profile posts).
+- Items the previous page already returned are dropped from the next one, so a page can hold fewer items than the provider sent.
+- `tiktok_trending` and `instagram_search` do not paginate.
+
+## Network stats
+
+Public counters for the Desearch network. These routes need no API key (the API does not check it) and are free.
+
+```python
+from contextlib import aclosing
+
+stats = await client.network_stats()
+print(stats.total_searchable_pages, stats.rates_per_second.total_searchable_pages)
+
+history = await client.network_stats_history()  # one point per second, last 20 minutes
+print(history.window_started_at, len(history.points))
+
+# One `stats` Server-Sent Event per second. aclosing() closes the connection
+# as soon as you leave the loop.
+last_event_id = None
+async with aclosing(client.stream_network_stats()) as events:
+    async for event in events:
+        last_event_id = event.id
+        print(event.data.updated_at, event.data.searches_completed_today)
+        if event.data.searches_completed_today > 1_000_000:
+            break
+
+# Resume later: the API replays the events you missed (up to 20 minutes).
+async with aclosing(client.stream_network_stats(last_event_id=last_event_id)) as events:
+    async for event in events:
+        ...
+```
+
+- `stream_network_stats` is an async iterator of `NetworkStatsEvent` (`id`, `event`, and `data`, a `NetworkStatsResponse`). It does not reconnect on its own; call it again with `last_event_id` to resume.
+- The 120 second timeout of other methods does not apply to the stream. It fails with a timeout error if no data arrives for 60 seconds.
+- The counters are an estimate: `telemetry_kind` is `estimated` and `methodology` is `fixed_rate_projection`.
 
 ## People Search
 
@@ -277,7 +401,15 @@ Dependencies declared in source:
 | Run tests | `poetry run python -m unittest discover -s tests -v` | Uses the stdlib unittest runner |
 | Build Sphinx docs | `make -C docs html` | Requires Sphinx dev deps |
 
-A unittest suite covers response metadata, API key redaction, and People Search, with HTTP mocked or served from a local test server. There is still no dedicated lint or format command configured in the repo.
+A unittest suite covers response metadata and pagination cursors, API key redaction, People Search, the social, Search API, and network stats methods, and the Server-Sent Events decoder, with HTTP mocked or served from a local test server. There is still no dedicated lint or format command configured in the repo.
+
+`scripts/e2e_full_coverage.py` is a live smoke test of the 1.8.0 methods. It calls the real API, so it is not part of the unit suite:
+
+```bash
+DESEARCH_API_KEY=your_api_key python scripts/e2e_full_coverage.py
+```
+
+It calls each new method once with the smallest counts, reads one more page wherever a list method returns a cursor, prints `PASS name` or `FAIL name: error` per call, and exits non-zero on any failure. `--base-url` points it at another environment. It never starts a People Search (a paid job) unless you pass `--with-people`.
 
 ## Tech stack
 
@@ -324,6 +456,25 @@ content = await client.extract(
 
 Existing `web_crawl()` integrations continue to work through the legacy route. Use `extract()` for new integrations.
 
+### Search API
+
+- `search_api` — `POST /search`, ranked pages with the best matching passage. See [Search API](#search-api).
+
+### TikTok, Instagram, and Facebook endpoints
+
+- TikTok: `tiktok_search`, `tiktok_post_by_id`, `tiktok_profile`, `tiktok_profile_posts`, `tiktok_comments`, `tiktok_hashtag`, `tiktok_trending`
+- Instagram: `instagram_search`, `instagram_media`, `instagram_profile`, `instagram_profile_posts`, `instagram_comments`, `instagram_hashtag`
+- Facebook: `facebook_search`, `facebook_post_by_id`, `facebook_profile`, `facebook_profile_posts`, `facebook_comments`, `facebook_hashtag`
+
+See [TikTok, Instagram, and Facebook](#tiktok-instagram-and-facebook) for the routes and [Pagination](#pagination) for cursors.
+
+### Network stats endpoints
+
+- `network_stats`, `network_stats_history`
+- `stream_network_stats` — async iterator over the `GET /network/stats/stream` Server-Sent Events
+
+See [Network stats](#network-stats).
+
 ### People Search endpoints
 
 - `x_profile_search`, `youtube_creator_search`, `linkedin_profile_search`, `tiktok_creator_search`
@@ -336,7 +487,7 @@ See [People Search](#people-search) for an example, pricing, and filters.
 
 ### Typed exports
 
-The package re-exports the async client plus enums and models from `desearch_py.models`, including `Tool`, `WebTool`, `DateFilter`, `ResultType`, `Sort`, `ResponseData`, `DesearchCostMetadata`, `DesearchResponse`, `TwitterScraperTweet`, `WebSearchResponse`, `WebSearchResultsResponse`, `XLinksSearchResponse`, `XRetweetersResponse`, `XUserPostsResponse`, and `XTrendsResponse`. People Search adds `PeopleTask`, `PeopleTaskList`, `PeopleResultsPage`, `Person`, `PeopleProfile`, `PeopleProfilesPage`, `PeopleResultFilters`, the four request and filters models, the result models `PeopleTaskWarning` and `PeopleCriterionCheck`, the enums `PeoplePlatform`, `PeopleTaskStatus`, `PeopleProfileSort`, `PeopleExportFormat`, `PeopleChannel`, `PeopleCompletionReason`, `PeopleCriterionVerdict`, `PeopleEnrichment`, and `PeopleEnrichmentError`, and the errors `PeopleTaskConflictError` and `PeopleTaskTimeoutError`.
+The package re-exports the async client plus enums and models from `desearch_py.models`, including `Tool`, `WebTool`, `DateFilter`, `ResultType`, `Sort`, `ResponseData`, `DesearchCostMetadata`, `DesearchResponse`, `TwitterScraperTweet`, `WebSearchResponse`, `WebSearchResultsResponse`, `XLinksSearchResponse`, `XRetweetersResponse`, `XUserPostsResponse`, and `XTrendsResponse`. 1.8.0 adds the Search API models `SearchApiResponse`, `SearchApiResult`, and the enum `SearchApiMode`; the TikTok models `TikTokPost`, `TikTokProfile`, `TikTokComment`, `TikTokAuthor`, `TikTokStats`, and `TikTokMusic`; the Instagram models `InstagramMedia`, `InstagramProfile`, `InstagramComment`, `InstagramSearchResult`, and `InstagramStats`; the Facebook models `FacebookPost`, `FacebookProfile`, `FacebookComment`, `FacebookMedia`, and `FacebookPostStats`; and the network stats models `NetworkStatsResponse`, `NetworkStatsRates`, `NetworkStatsHistoryResponse`, `NetworkStatsHistoryPoint`, and `NetworkStatsEvent`. People Search adds `PeopleTask`, `PeopleTaskList`, `PeopleResultsPage`, `Person`, `PeopleProfile`, `PeopleProfilesPage`, `PeopleResultFilters`, the four request and filters models, the result models `PeopleTaskWarning` and `PeopleCriterionCheck`, the enums `PeoplePlatform`, `PeopleTaskStatus`, `PeopleProfileSort`, `PeopleExportFormat`, `PeopleChannel`, `PeopleCompletionReason`, `PeopleCriterionVerdict`, `PeopleEnrichment`, and `PeopleEnrichmentError`, and the errors `PeopleTaskConflictError` and `PeopleTaskTimeoutError`.
 
 ## Architecture overview
 
@@ -351,11 +502,12 @@ Key design decisions visible in code:
 - the HTTP session is created lazily on first use
 - auth is sent as `Authorization: <api_key>` with no `Bearer` prefix
 - most requests share a single helper with a fixed 120 second timeout
-- successful responses can opt in to a `DesearchResponse` wrapper with parsed cost metadata from response headers
+- successful responses can opt in to a `DesearchResponse` wrapper with parsed cost metadata and the social `next_cursor` from response headers
+- path parameters are percent-encoded as one segment, `/` included
 - `x_posts_by_urls` and the extraction methods use specialized request paths for repeated query parameters and text responses, while still supporting the metadata wrapper
 - some endpoints fall back to raw `dict` values instead of failing model parsing
-- `ai_search` always sends `"streaming": False`
-- People Search searches are background tasks; `wait_for_people_task` and `iter_people_results` are the SDK's only polling and pagination helpers
+- `ai_search` always sends `"streaming": False`; `stream_network_stats` is the only streaming method, with its own Server-Sent Events decoder
+- People Search searches are background tasks; `wait_for_people_task` and `iter_people_results` are the SDK's only polling and pagination helpers (social list methods return one page and leave the cursor to you)
 
 ## Usage notes
 
@@ -388,6 +540,7 @@ The following methods may return a typed object on success or a raw `dict` when 
 - `x_posts_by_user`
 - `x_user_replies`
 - `x_post_replies`
+- the TikTok, Instagram, and Facebook methods that return a list: they return the raw `dict` when the API answers with an object instead of a list
 
 If your app depends on strict typing, add runtime checks before dereferencing attributes.
 
@@ -410,7 +563,7 @@ Always:
 
 Never:
 
-- describe unsupported streaming or retry behavior as implemented
+- describe unsupported streaming or retry behavior as implemented (only `stream_network_stats` streams)
 - assume generated files in `docs/_build/` are the source of truth
 - confuse this repo with `desearch.js`, `desearch-public-api`, or `desearch-console`
 

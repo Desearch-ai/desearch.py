@@ -1,10 +1,23 @@
 from __future__ import annotations
 
 import asyncio
+import codecs
 import json
 import logging
 import math
-from typing import Any, AsyncIterator, Dict, List, Optional, Tuple, Union, cast
+from typing import (
+    Any,
+    AsyncGenerator,
+    AsyncIterator,
+    Dict,
+    List,
+    NamedTuple,
+    Optional,
+    Tuple,
+    Type,
+    Union,
+    cast,
+)
 from urllib.parse import quote
 from uuid import UUID
 
@@ -14,6 +27,21 @@ from pydantic import BaseModel, ValidationError
 from .models import (
     DesearchCostMetadata,
     DesearchResponse,
+    FacebookComment,
+    FacebookPost,
+    FacebookProfile,
+    InstagramComment,
+    InstagramMedia,
+    InstagramProfile,
+    InstagramSearchResult,
+    NetworkStatsEvent,
+    NetworkStatsHistoryResponse,
+    NetworkStatsResponse,
+    SearchApiMode,
+    SearchApiResponse,
+    TikTokComment,
+    TikTokPost,
+    TikTokProfile,
     LinkedInProfileSearchFilters,
     LinkedInProfileSearchRequest,
     PeopleExportFormat,
@@ -151,6 +179,113 @@ def _encode_query_params(params: Any) -> Any:
     return dict(encoded) if isinstance(params, dict) else encoded
 
 
+def _path_segment(value: Union[str, int]) -> str:
+    """Percent-encode one path parameter, ``/`` included.
+
+    Routes such as ``/desearch/instagram/media/{id}`` accept a URL or an id
+    that contains ``/``. Encoding it as ``%2F`` keeps it one path segment on
+    the wire; the API decodes it back before matching the route.
+    """
+    return quote(str(value), safe="")
+
+
+class _ServerSentEvent(NamedTuple):
+    event: str
+    data: str
+    id: Optional[str]
+
+
+class _ServerSentEventDecoder:
+    """Incremental decoder for a ``text/event-stream`` body.
+
+    Feed it raw bytes in chunks of any size; it returns each complete event.
+    It follows the WHATWG event-stream rules: lines end with CRLF, LF or CR
+    (also when a chunk splits a CRLF), a leading BOM is dropped, lines that
+    start with ``:`` are comments, ``data`` lines are joined with ``\\n``, a
+    blank line dispatches the event, an event with no ``data`` is dropped, the
+    last ``id`` carries over to later events, and ``retry`` and unknown fields
+    are ignored. An event the stream ends in the middle of is discarded.
+    """
+
+    def __init__(self) -> None:
+        self._decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+        self._pending = ""
+        self._started = False
+        self._event = ""
+        self._data: List[str] = []
+        self._last_event_id: Optional[str] = None
+
+    def feed(self, chunk: bytes) -> List[_ServerSentEvent]:
+        return self._feed_text(self._decoder.decode(chunk))
+
+    def close(self) -> List[_ServerSentEvent]:
+        """Flush at end of stream. Only a line that ended in a final CR is left."""
+        events = self._feed_text(self._decoder.decode(b"", final=True))
+        if self._pending.endswith("\r"):
+            event = self._process_line(self._pending[:-1])
+            self._pending = ""
+            if event is not None:
+                events.append(event)
+        return events
+
+    def _feed_text(self, text: str) -> List[_ServerSentEvent]:
+        if not self._started and text:
+            self._started = True
+            if text.startswith("﻿"):
+                text = text[1:]
+        text = self._pending + text
+        events: List[_ServerSentEvent] = []
+        start = 0
+        index = 0
+        length = len(text)
+        while index < length:
+            char = text[index]
+            if char not in "\r\n":
+                index += 1
+                continue
+            if char == "\r" and index + 1 == length:
+                # A CR at the end of the chunk may be the first half of CRLF.
+                break
+            line = text[start:index]
+            if char == "\r" and text[index + 1] == "\n":
+                index += 1
+            index += 1
+            start = index
+            event = self._process_line(line)
+            if event is not None:
+                events.append(event)
+        self._pending = text[start:]
+        return events
+
+    def _process_line(self, line: str) -> Optional[_ServerSentEvent]:
+        if not line:
+            return self._dispatch()
+        if line.startswith(":"):
+            return None
+        field, colon, value = line.partition(":")
+        if colon and value.startswith(" "):
+            value = value[1:]
+        if field == "event":
+            self._event = value
+        elif field == "data":
+            self._data.append(value)
+        elif field == "id":
+            if "\0" not in value:
+                self._last_event_id = value
+        return None
+
+    def _dispatch(self) -> Optional[_ServerSentEvent]:
+        event_type = self._event or "message"
+        data = self._data
+        self._event = ""
+        self._data = []
+        if not data:
+            return None
+        return _ServerSentEvent(
+            event=event_type, data="\n".join(data), id=self._last_event_id
+        )
+
+
 class Desearch:
     """Async Python SDK client for the Desearch API."""
 
@@ -211,12 +346,18 @@ class Desearch:
 
     @classmethod
     def _extract_cost_metadata(cls, headers: Any) -> DesearchCostMetadata:
-        """Parse optional Desearch per-request cost metadata from response headers."""
+        """Parse optional Desearch per-request metadata from response headers.
+
+        Covers the cost headers and the social-list ``x-desearch-next-cursor``
+        header. The cursor is opaque and is kept exactly as sent; an empty
+        value means no next page.
+        """
         return DesearchCostMetadata(
             cost_usd=cls._parse_float(headers.get("X-Desearch-Cost-Usd")),
             usage_count=cls._parse_int(headers.get("X-Desearch-Usage-Count")),
             service=headers.get("X-Desearch-Service"),
             currency=headers.get("X-Desearch-Currency"),
+            next_cursor=headers.get("x-desearch-next-cursor") or None,
         )
 
     @staticmethod
@@ -986,6 +1127,839 @@ class Desearch:
         return await self._handle_text_request(
             "/web/crawl", params=params, include_metadata=include_metadata
         )
+
+    # ─── Search API ──────────────────────────────────────────────────────────
+
+    async def search_api(
+        self,
+        query: str,
+        mode: Optional[Union[SearchApiMode, str]] = None,
+        count: Optional[int] = None,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        highlights: Optional[bool] = None,
+        page_text: Optional[bool] = None,
+        *,
+        include_metadata: bool = False,
+    ) -> Union[SearchApiResponse, DesearchResponse[SearchApiResponse]]:
+        """
+        Search the web and return ranked pages, each with the passage that best matches the query.
+
+        Calls ``POST /search``. Unset arguments are not sent, so the API
+        defaults apply.
+
+        Args:
+            query (str): Search query (1-2000 characters).
+            mode (Optional[Union[SearchApiMode, str]]): ``fast`` returns results sooner;
+                ``balanced`` (the API default) favors relevance.
+            count (Optional[int]): Number of results: 10 (the API default), 15 or 20.
+            start_date (Optional[str]): Only pages published on or after this date (YYYY-MM-DD).
+            end_date (Optional[str]): Only pages published on or before this date (YYYY-MM-DD).
+            highlights (Optional[bool]): Include the passage that best matches the query
+                (the API default is ``True``).
+            page_text (Optional[bool]): Include the full page text (the API default is ``False``).
+
+        Returns:
+            SearchApiResponse: Ranked results and the cost of the request.
+        """
+        url = f"{self.base_url}/search"
+        payload = {
+            k: v
+            for k, v in {
+                "query": query,
+                "mode": _enum_value(mode),
+                "count": count,
+                "start_date": start_date,
+                "end_date": end_date,
+                "highlights": highlights,
+                "page_text": page_text,
+            }.items()
+            if v is not None
+        }
+        return await self._request_object(
+            "POST",
+            url,
+            SearchApiResponse,
+            include_metadata=include_metadata,
+            json=payload,
+        )
+
+    # ─── TikTok ──────────────────────────────────────────────────────────────
+    #
+    # List methods return one page. With ``include_metadata=True`` the
+    # response metadata has ``next_cursor`` when another page exists; pass it
+    # back unchanged as ``cursor`` with the same target to read that page.
+
+    async def _request_list(
+        self,
+        method: str,
+        url: str,
+        model: Type[BaseModel],
+        *,
+        include_metadata: bool,
+        **kwargs: Any,
+    ) -> Any:
+        """Send a request whose body is a JSON array of ``model`` items.
+
+        A list body is parsed item by item; any other body (a dict) is
+        returned unchanged, like ``x_search``.
+        """
+        result = await self._handle_request(
+            method, url, include_metadata=include_metadata, **kwargs
+        )
+        data, metadata = self._split_response(result, include_metadata)
+        parsed_data = data
+        if isinstance(data, list):
+            parsed_data = [model.model_validate(item) for item in data]
+        return self._with_metadata(parsed_data, metadata, include_metadata)
+
+    async def _request_object(
+        self,
+        method: str,
+        url: str,
+        model: Type[BaseModel],
+        *,
+        include_metadata: bool,
+        **kwargs: Any,
+    ) -> Any:
+        """Send a request whose body is one JSON object, parsed as ``model``."""
+        result = await self._handle_request(
+            method, url, include_metadata=include_metadata, **kwargs
+        )
+        data, metadata = self._split_response(result, include_metadata)
+        return self._with_metadata(
+            model.model_validate(data), metadata, include_metadata
+        )
+
+    async def tiktok_search(
+        self,
+        query: str,
+        count: Optional[int] = None,
+        cursor: Optional[str] = None,
+        sort: Optional[str] = None,
+        *,
+        include_metadata: bool = False,
+    ) -> Union[
+        List[TikTokPost],
+        Dict[str, Any],
+        DesearchResponse[Union[List[TikTokPost], Dict[str, Any]]],
+    ]:
+        """
+        Search public TikTok posts by keyword.
+
+        Each post ``id`` is the TikTok video ID and can be passed to
+        :meth:`tiktok_comments`.
+
+        Args:
+            query (str): Keyword or phrase to search on TikTok.
+            count (Optional[int]): Maximum number of posts (1-100; the API default is 10).
+                The provider page may be smaller.
+            cursor (Optional[str]): ``next_cursor`` from the previous page's metadata,
+                sent back unchanged with the same ``query`` and ``sort``. Omit it for the first page.
+            sort (Optional[str]): Sort option, when the provider supports it.
+
+        Returns:
+            Union[List[TikTokPost], Dict[str, Any]]: One page of posts, or the raw body when it is not a list.
+        """
+        url = f"{self.base_url}/desearch/tiktok/search"
+        payload = {
+            k: v
+            for k, v in {
+                "query": query,
+                "count": count,
+                "cursor": cursor,
+                "sort": sort,
+            }.items()
+            if v is not None
+        }
+        return await self._request_list(
+            "POST", url, TikTokPost, include_metadata=include_metadata, json=payload
+        )
+
+    async def tiktok_post_by_id(
+        self,
+        id: str,
+        *,
+        include_metadata: bool = False,
+    ) -> Union[TikTokPost, DesearchResponse[TikTokPost]]:
+        """
+        Fetch a public TikTok post by its video ID.
+
+        Args:
+            id (str): TikTok video/post ID.
+
+        Returns:
+            TikTokPost: The post.
+        """
+        url = f"{self.base_url}/desearch/tiktok/post/{_path_segment(id)}"
+        return await self._request_object(
+            "GET", url, TikTokPost, include_metadata=include_metadata
+        )
+
+    async def tiktok_profile(
+        self,
+        username: str,
+        *,
+        include_metadata: bool = False,
+    ) -> Union[TikTokProfile, DesearchResponse[TikTokProfile]]:
+        """
+        Fetch a public TikTok profile by username.
+
+        Args:
+            username (str): TikTok username, without ``@``.
+
+        Returns:
+            TikTokProfile: The profile.
+        """
+        url = f"{self.base_url}/desearch/tiktok/profile/{_path_segment(username)}"
+        return await self._request_object(
+            "GET", url, TikTokProfile, include_metadata=include_metadata
+        )
+
+    async def tiktok_profile_posts(
+        self,
+        username: str,
+        count: Optional[int] = None,
+        cursor: Optional[str] = None,
+        *,
+        include_metadata: bool = False,
+    ) -> Union[
+        List[TikTokPost],
+        Dict[str, Any],
+        DesearchResponse[Union[List[TikTokPost], Dict[str, Any]]],
+    ]:
+        """
+        Fetch public posts by a TikTok user.
+
+        Args:
+            username (str): TikTok username, without ``@``.
+            count (Optional[int]): Maximum number of posts (1-100; the API default is 20).
+                The provider page may be smaller.
+            cursor (Optional[str]): ``next_cursor`` from the previous page's metadata,
+                sent back unchanged for the same ``username``. Omit it for the first page.
+
+        Returns:
+            Union[List[TikTokPost], Dict[str, Any]]: One page of posts, or the raw body when it is not a list.
+        """
+        url = (
+            f"{self.base_url}/desearch/tiktok/profile/{_path_segment(username)}/posts"
+        )
+        params = {
+            k: v for k, v in {"count": count, "cursor": cursor}.items() if v is not None
+        }
+        return await self._request_list(
+            "GET", url, TikTokPost, include_metadata=include_metadata, params=params
+        )
+
+    async def tiktok_comments(
+        self,
+        video_id: str,
+        count: Optional[int] = None,
+        cursor: Optional[str] = None,
+        *,
+        include_metadata: bool = False,
+    ) -> Union[
+        List[TikTokComment],
+        Dict[str, Any],
+        DesearchResponse[Union[List[TikTokComment], Dict[str, Any]]],
+    ]:
+        """
+        Fetch public comments on a TikTok video.
+
+        Args:
+            video_id (str): TikTok video/post ID (``TikTokPost.id``).
+            count (Optional[int]): Maximum number of comments (1-100; the API default is 20).
+                The provider page may be smaller.
+            cursor (Optional[str]): ``next_cursor`` from the previous page's metadata,
+                sent back unchanged for the same ``video_id``. Omit it for the first page.
+
+        Returns:
+            Union[List[TikTokComment], Dict[str, Any]]: One page of comments, or the raw body when it is not a list.
+        """
+        url = f"{self.base_url}/desearch/tiktok/comments/{_path_segment(video_id)}"
+        params = {
+            k: v for k, v in {"count": count, "cursor": cursor}.items() if v is not None
+        }
+        return await self._request_list(
+            "GET", url, TikTokComment, include_metadata=include_metadata, params=params
+        )
+
+    async def tiktok_hashtag(
+        self,
+        tag: str,
+        count: Optional[int] = None,
+        cursor: Optional[str] = None,
+        *,
+        include_metadata: bool = False,
+    ) -> Union[
+        List[TikTokPost],
+        Dict[str, Any],
+        DesearchResponse[Union[List[TikTokPost], Dict[str, Any]]],
+    ]:
+        """
+        Fetch public TikTok posts for a hashtag.
+
+        Args:
+            tag (str): Hashtag, without ``#``.
+            count (Optional[int]): Maximum number of posts (1-100; the API default is 20).
+                The provider page may be smaller.
+            cursor (Optional[str]): ``next_cursor`` from the previous page's metadata,
+                sent back unchanged for the same ``tag``. Omit it for the first page.
+
+        Returns:
+            Union[List[TikTokPost], Dict[str, Any]]: One page of posts, or the raw body when it is not a list.
+        """
+        url = f"{self.base_url}/desearch/tiktok/hashtag/{_path_segment(tag)}"
+        params = {
+            k: v for k, v in {"count": count, "cursor": cursor}.items() if v is not None
+        }
+        return await self._request_list(
+            "GET", url, TikTokPost, include_metadata=include_metadata, params=params
+        )
+
+    async def tiktok_trending(
+        self,
+        region: Optional[str] = None,
+        count: Optional[int] = None,
+        *,
+        include_metadata: bool = False,
+    ) -> Union[
+        List[TikTokPost],
+        Dict[str, Any],
+        DesearchResponse[Union[List[TikTokPost], Dict[str, Any]]],
+    ]:
+        """
+        Fetch trending TikTok posts for a region. This route does not paginate.
+
+        Args:
+            region (Optional[str]): Two-letter region code (the API default is ``US``).
+            count (Optional[int]): Maximum number of posts (1-100; the API default is 20).
+                The provider page may be smaller.
+
+        Returns:
+            Union[List[TikTokPost], Dict[str, Any]]: Trending posts, or the raw body when it is not a list.
+        """
+        url = f"{self.base_url}/desearch/tiktok/trending"
+        params = {
+            k: v for k, v in {"region": region, "count": count}.items() if v is not None
+        }
+        return await self._request_list(
+            "GET", url, TikTokPost, include_metadata=include_metadata, params=params
+        )
+
+    # ─── Facebook ────────────────────────────────────────────────────────────
+
+    async def facebook_search(
+        self,
+        query: str,
+        count: Optional[int] = None,
+        cursor: Optional[str] = None,
+        *,
+        include_metadata: bool = False,
+    ) -> Union[
+        List[FacebookPost],
+        Dict[str, Any],
+        DesearchResponse[Union[List[FacebookPost], Dict[str, Any]]],
+    ]:
+        """
+        Search public Meta Ad Library records by keyword.
+
+        Organic Facebook post search is not available; results are ads, with
+        the ad fields of :class:`FacebookPost` set.
+
+        Args:
+            query (str): Ad Library keyword, phrase, or hashtag.
+            count (Optional[int]): Maximum number of records (1-100; the API default is 10).
+                The provider page may be smaller.
+            cursor (Optional[str]): ``next_cursor`` from the previous page's metadata,
+                sent back unchanged with the same ``query``. Omit it for the first page.
+
+        Returns:
+            Union[List[FacebookPost], Dict[str, Any]]: One page of records, or the raw body when it is not a list.
+        """
+        url = f"{self.base_url}/desearch/facebook/search"
+        payload = {
+            k: v
+            for k, v in {
+                "query": query,
+                "count": count,
+                "cursor": cursor,
+            }.items()
+            if v is not None
+        }
+        return await self._request_list(
+            "POST", url, FacebookPost, include_metadata=include_metadata, json=payload
+        )
+
+    async def facebook_post_by_id(
+        self,
+        id: str,
+        *,
+        include_metadata: bool = False,
+    ) -> Union[FacebookPost, DesearchResponse[FacebookPost]]:
+        """
+        Fetch a public Facebook post or media item by ID.
+
+        Args:
+            id (str): Facebook public post/media ID.
+
+        Returns:
+            FacebookPost: The post.
+        """
+        url = f"{self.base_url}/desearch/facebook/post/{_path_segment(id)}"
+        return await self._request_object(
+            "GET", url, FacebookPost, include_metadata=include_metadata
+        )
+
+    async def facebook_profile(
+        self,
+        profile_id: str,
+        *,
+        include_metadata: bool = False,
+    ) -> Union[FacebookProfile, DesearchResponse[FacebookProfile]]:
+        """
+        Fetch a public Facebook profile or page.
+
+        Args:
+            profile_id (str): Profile/page ID, username, or public vanity handle.
+
+        Returns:
+            FacebookProfile: The profile or page.
+        """
+        url = f"{self.base_url}/desearch/facebook/profile/{_path_segment(profile_id)}"
+        return await self._request_object(
+            "GET", url, FacebookProfile, include_metadata=include_metadata
+        )
+
+    async def facebook_profile_posts(
+        self,
+        profile_id: str,
+        count: Optional[int] = None,
+        cursor: Optional[str] = None,
+        *,
+        include_metadata: bool = False,
+    ) -> Union[
+        List[FacebookPost],
+        Dict[str, Any],
+        DesearchResponse[Union[List[FacebookPost], Dict[str, Any]]],
+    ]:
+        """
+        Fetch public posts from a Facebook profile or page.
+
+        Args:
+            profile_id (str): Profile/page ID or public handle.
+            count (Optional[int]): Maximum number of posts (1-100; the API default is 20).
+                The provider page may be smaller.
+            cursor (Optional[str]): ``next_cursor`` from the previous page's metadata,
+                sent back unchanged for the same ``profile_id``. Omit it for the first page.
+
+        Returns:
+            Union[List[FacebookPost], Dict[str, Any]]: One page of posts, or the raw body when it is not a list.
+        """
+        url = (
+            f"{self.base_url}/desearch/facebook/profile/"
+            f"{_path_segment(profile_id)}/posts"
+        )
+        params = {
+            k: v for k, v in {"count": count, "cursor": cursor}.items() if v is not None
+        }
+        return await self._request_list(
+            "GET", url, FacebookPost, include_metadata=include_metadata, params=params
+        )
+
+    async def facebook_comments(
+        self,
+        post_id: str,
+        count: Optional[int] = None,
+        cursor: Optional[str] = None,
+        *,
+        include_metadata: bool = False,
+    ) -> Union[
+        List[FacebookComment],
+        Dict[str, Any],
+        DesearchResponse[Union[List[FacebookComment], Dict[str, Any]]],
+    ]:
+        """
+        Fetch public comments on a Facebook post or media item.
+
+        The provider returns about 10 comments per page whatever ``count`` is;
+        follow ``next_cursor`` for more.
+
+        Args:
+            post_id (str): Facebook public post/media ID.
+            count (Optional[int]): Maximum number of comments (1-100; the API default is 20).
+            cursor (Optional[str]): ``next_cursor`` from the previous page's metadata,
+                sent back unchanged for the same ``post_id``. Omit it for the first page.
+
+        Returns:
+            Union[List[FacebookComment], Dict[str, Any]]: One page of comments, or the raw body when it is not a list.
+        """
+        url = f"{self.base_url}/desearch/facebook/comments/{_path_segment(post_id)}"
+        params = {
+            k: v for k, v in {"count": count, "cursor": cursor}.items() if v is not None
+        }
+        return await self._request_list(
+            "GET",
+            url,
+            FacebookComment,
+            include_metadata=include_metadata,
+            params=params,
+        )
+
+    async def facebook_hashtag(
+        self,
+        tag: str,
+        count: Optional[int] = None,
+        cursor: Optional[str] = None,
+        *,
+        include_metadata: bool = False,
+    ) -> Union[
+        List[FacebookPost],
+        Dict[str, Any],
+        DesearchResponse[Union[List[FacebookPost], Dict[str, Any]]],
+    ]:
+        """
+        Fetch public Meta Ad Library records for a keyword or hashtag.
+
+        Args:
+            tag (str): Hashtag or keyword, without ``#``.
+            count (Optional[int]): Maximum number of records (1-100; the API default is 20).
+                The provider page may be smaller.
+            cursor (Optional[str]): ``next_cursor`` from the previous page's metadata,
+                sent back unchanged for the same ``tag``. Omit it for the first page.
+
+        Returns:
+            Union[List[FacebookPost], Dict[str, Any]]: One page of records, or the raw body when it is not a list.
+        """
+        url = f"{self.base_url}/desearch/facebook/hashtag/{_path_segment(tag)}"
+        params = {
+            k: v for k, v in {"count": count, "cursor": cursor}.items() if v is not None
+        }
+        return await self._request_list(
+            "GET", url, FacebookPost, include_metadata=include_metadata, params=params
+        )
+
+    # ─── Instagram ───────────────────────────────────────────────────────────
+
+    async def instagram_search(
+        self,
+        query: str,
+        count: Optional[int] = None,
+        *,
+        include_metadata: bool = False,
+    ) -> Union[
+        List[InstagramSearchResult],
+        Dict[str, Any],
+        DesearchResponse[Union[List[InstagramSearchResult], Dict[str, Any]]],
+    ]:
+        """
+        Search public Instagram profiles by keyword.
+
+        Returns one page and does not paginate (the API rejects a ``cursor``
+        here, so this method takes none). Use :meth:`instagram_hashtag` to
+        find media.
+
+        Args:
+            query (str): Keyword, username, or phrase.
+            count (Optional[int]): Maximum number of results (1-100; the API default is 10).
+                The provider page may be smaller.
+
+        Returns:
+            Union[List[InstagramSearchResult], Dict[str, Any]]: Results, or the raw body when it is not a list.
+        """
+        url = f"{self.base_url}/desearch/instagram/search"
+        payload = {
+            k: v for k, v in {"query": query, "count": count}.items() if v is not None
+        }
+        return await self._request_list(
+            "POST",
+            url,
+            InstagramSearchResult,
+            include_metadata=include_metadata,
+            json=payload,
+        )
+
+    async def instagram_media(
+        self,
+        id: str,
+        *,
+        include_metadata: bool = False,
+    ) -> Union[InstagramMedia, DesearchResponse[InstagramMedia]]:
+        """
+        Fetch a public Instagram post by shortcode, ID, or URL.
+
+        Args:
+            id (str): Media shortcode (e.g. ``DY79rTVS6OK``), media ID, or public post URL.
+
+        Returns:
+            InstagramMedia: The post.
+        """
+        url = f"{self.base_url}/desearch/instagram/media/{_path_segment(id)}"
+        return await self._request_object(
+            "GET", url, InstagramMedia, include_metadata=include_metadata
+        )
+
+    async def instagram_profile(
+        self,
+        username: str,
+        *,
+        include_metadata: bool = False,
+    ) -> Union[InstagramProfile, DesearchResponse[InstagramProfile]]:
+        """
+        Fetch a public Instagram profile by username.
+
+        Args:
+            username (str): Instagram username, without ``@``.
+
+        Returns:
+            InstagramProfile: The profile.
+        """
+        url = f"{self.base_url}/desearch/instagram/profile/{_path_segment(username)}"
+        return await self._request_object(
+            "GET", url, InstagramProfile, include_metadata=include_metadata
+        )
+
+    async def instagram_profile_posts(
+        self,
+        username: str,
+        count: Optional[int] = None,
+        cursor: Optional[str] = None,
+        *,
+        include_metadata: bool = False,
+    ) -> Union[
+        List[InstagramMedia],
+        Dict[str, Any],
+        DesearchResponse[Union[List[InstagramMedia], Dict[str, Any]]],
+    ]:
+        """
+        Fetch public posts by an Instagram user.
+
+        Args:
+            username (str): Instagram username, without ``@``.
+            count (Optional[int]): Maximum number of posts (1-100; the API default is 20).
+                The provider page may be smaller (about 12).
+            cursor (Optional[str]): ``next_cursor`` from the previous page's metadata,
+                sent back unchanged for the same ``username``. Omit it for the first page.
+
+        Returns:
+            Union[List[InstagramMedia], Dict[str, Any]]: One page of posts, or the raw body when it is not a list.
+        """
+        url = (
+            f"{self.base_url}/desearch/instagram/profile/"
+            f"{_path_segment(username)}/posts"
+        )
+        params = {
+            k: v for k, v in {"count": count, "cursor": cursor}.items() if v is not None
+        }
+        return await self._request_list(
+            "GET", url, InstagramMedia, include_metadata=include_metadata, params=params
+        )
+
+    async def instagram_comments(
+        self,
+        shortcode: str,
+        count: Optional[int] = None,
+        cursor: Optional[str] = None,
+        *,
+        include_metadata: bool = False,
+    ) -> Union[
+        List[InstagramComment],
+        Dict[str, Any],
+        DesearchResponse[Union[List[InstagramComment], Dict[str, Any]]],
+    ]:
+        """
+        Fetch public comments on an Instagram post.
+
+        Args:
+            shortcode (str): The post shortcode, the code in the post URL (``DeuOR-CjKE9`` in
+                ``https://www.instagram.com/p/DeuOR-CjKE9/``). Numeric media IDs return 404.
+            count (Optional[int]): Maximum number of comments (1-100; the API default is 20).
+                The provider page may be smaller.
+            cursor (Optional[str]): ``next_cursor`` from the previous page's metadata,
+                sent back unchanged for the same ``shortcode``. Omit it for the first page.
+
+        Returns:
+            Union[List[InstagramComment], Dict[str, Any]]: One page of comments, or the raw body when it is not a list.
+        """
+        url = f"{self.base_url}/desearch/instagram/comments/{_path_segment(shortcode)}"
+        params = {
+            k: v for k, v in {"count": count, "cursor": cursor}.items() if v is not None
+        }
+        return await self._request_list(
+            "GET",
+            url,
+            InstagramComment,
+            include_metadata=include_metadata,
+            params=params,
+        )
+
+    async def instagram_hashtag(
+        self,
+        tag: str,
+        count: Optional[int] = None,
+        cursor: Optional[str] = None,
+        *,
+        include_metadata: bool = False,
+    ) -> Union[
+        List[InstagramMedia],
+        Dict[str, Any],
+        DesearchResponse[Union[List[InstagramMedia], Dict[str, Any]]],
+    ]:
+        """
+        Fetch public Instagram posts for a hashtag.
+
+        Args:
+            tag (str): Hashtag, without ``#``.
+            count (Optional[int]): Maximum number of posts (1-100; the API default is 20).
+                The provider page may be smaller.
+            cursor (Optional[str]): ``next_cursor`` from the previous page's metadata,
+                sent back unchanged for the same ``tag``. Omit it for the first page.
+
+        Returns:
+            Union[List[InstagramMedia], Dict[str, Any]]: One page of posts, or the raw body when it is not a list.
+        """
+        url = f"{self.base_url}/desearch/instagram/hashtag/{_path_segment(tag)}"
+        params = {
+            k: v for k, v in {"count": count, "cursor": cursor}.items() if v is not None
+        }
+        return await self._request_list(
+            "GET", url, InstagramMedia, include_metadata=include_metadata, params=params
+        )
+
+    # ─── Network Stats ───────────────────────────────────────────────────────
+    #
+    # Public routes: the API does not check the API key and does not charge.
+
+    async def network_stats(
+        self,
+        *,
+        include_metadata: bool = False,
+    ) -> Union[NetworkStatsResponse, DesearchResponse[NetworkStatsResponse]]:
+        """
+        Get the latest public Desearch network counters and their per-second growth rates.
+
+        No API key is required and the call is free. The counters are an
+        estimate (see ``telemetry_kind`` and ``methodology``).
+
+        Returns:
+            NetworkStatsResponse: The current counters.
+        """
+        url = f"{self.base_url}/network/stats"
+        return await self._request_object(
+            "GET", url, NetworkStatsResponse, include_metadata=include_metadata
+        )
+
+    async def network_stats_history(
+        self,
+        *,
+        include_metadata: bool = False,
+    ) -> Union[
+        NetworkStatsHistoryResponse, DesearchResponse[NetworkStatsHistoryResponse]
+    ]:
+        """
+        Get a one-second timeline of the network counters for the latest 20 minutes.
+
+        Use it to fill a recent-activity buffer before following
+        :meth:`stream_network_stats`. No API key is required and the call is free.
+
+        Returns:
+            NetworkStatsHistoryResponse: The window and one point per second.
+        """
+        url = f"{self.base_url}/network/stats/history"
+        return await self._request_object(
+            "GET", url, NetworkStatsHistoryResponse, include_metadata=include_metadata
+        )
+
+    async def stream_network_stats(
+        self,
+        *,
+        last_event_id: Optional[Union[int, str]] = None,
+    ) -> AsyncGenerator[NetworkStatsEvent, None]:
+        """
+        Follow the live network counters: one ``stats`` Server-Sent Event per second.
+
+        An async generator that runs until you stop reading or the server
+        closes the stream; it does not reconnect on its own. To resume, call
+        it again with ``last_event_id`` set to the last ``event.id`` you
+        received, and the API replays what you missed (up to 20 minutes).
+        Wrap it in ``contextlib.aclosing`` to close the connection as soon as
+        you break out of the loop. No API key is required and the stream is free.
+
+        The 120 second request timeout of the other methods does not apply.
+        The stream fails with a timeout error when no data arrives for 60
+        seconds.
+
+        Args:
+            last_event_id (Optional[Union[int, str]]): Sent as the ``Last-Event-ID`` header.
+
+        Yields:
+            NetworkStatsEvent: Each ``stats`` event, with ``data`` parsed as
+            ``NetworkStatsResponse``. Events of other types and ``stats`` events whose
+            data cannot be parsed are skipped (the latter with a warning log).
+
+        Raises:
+            DesearchAPIError: On an HTTP error response. The API key is not included.
+            aiohttp.ClientError: On connection-level errors, including the read timeout.
+        """
+        method = "GET"
+        url = f"{self.base_url}/network/stats/stream"
+        headers = {"Accept": "text/event-stream", "Cache-Control": "no-cache"}
+        if last_event_id is not None:
+            headers["Last-Event-ID"] = str(last_event_id)
+        client = await self._ensure_session()
+        http_error: Optional[DesearchAPIError] = None
+        try:
+            async with client.request(
+                method,
+                url,
+                headers=headers,
+                timeout=aiohttp.ClientTimeout(
+                    total=None, sock_connect=30, sock_read=60
+                ),
+            ) as response:
+                await self._raise_if_http_error(response, method, url)
+                decoder = _ServerSentEventDecoder()
+                async for chunk in response.content.iter_any():
+                    for message in decoder.feed(chunk):
+                        event = self._network_stats_event(message)
+                        if event is not None:
+                            yield event
+                for message in decoder.close():
+                    event = self._network_stats_event(message)
+                    if event is not None:
+                        yield event
+                return
+        except aiohttp.ClientResponseError as exc:
+            # Same as _exchange: drop the aiohttp error, whose request headers
+            # hold the API key.
+            http_error = self._api_error_from_client_response(exc, method, url)
+        except aiohttp.ClientError as exc:
+            logger.error(
+                "Client error for %s %s: %s",
+                method,
+                self._redact(url),
+                self._redact(str(exc)),
+            )
+            raise
+        if http_error is None:
+            http_error = DesearchAPIError(
+                status=0, message="HTTP request failed", body=""
+            )
+        _raise_without_chain(http_error)
+
+    @staticmethod
+    def _network_stats_event(message: _ServerSentEvent) -> Optional[NetworkStatsEvent]:
+        if message.event != "stats":
+            return None
+        try:
+            stats = NetworkStatsResponse.model_validate_json(message.data)
+        except ValidationError:
+            logger.warning(
+                "Skipping network stats event %s: data is not a stats snapshot",
+                message.id,
+            )
+            return None
+        return NetworkStatsEvent(id=message.id, event=message.event, data=stats)
 
     # ─── People Search ───────────────────────────────────────────────────────
 

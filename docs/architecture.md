@@ -4,7 +4,7 @@ This document explains how the SDK is structured today, based on the checked-in 
 
 ## Overview
 
-`desearch-py` is a thin async wrapper over the Desearch HTTP API, including the task-based People Search API. The codebase is intentionally small and split across three public-facing package files:
+`desearch-py` is a thin async wrapper over the Desearch HTTP API, including the task-based People Search API, the paginated TikTok, Instagram, and Facebook routes, and the public network stats stream. The codebase is intentionally small and split across three public-facing package files:
 
 - `desearch_py/api.py` contains the async client and every endpoint method.
 - `desearch_py/models.py` contains enums plus permissive `pydantic` response models.
@@ -66,7 +66,7 @@ Consequence:
 - a hardcoded `aiohttp.ClientTimeout(total=120)`
 - HTTP failures as `DesearchAPIError` (status, reason, and response body only; request headers are not attached)
 - JSON decoding
-- optional cost metadata extraction from `X-Desearch-*` response headers
+- optional metadata extraction from response headers: the `X-Desearch-*` cost headers and the social `x-desearch-next-cursor` header (`DesearchCostMetadata.next_cursor`)
 - error logging before raise
 
 This keeps the repo small, but it also means the same timeout and JSON expectations are applied broadly.
@@ -111,7 +111,7 @@ That pattern shows the SDK favors resilience over rigid typing for unstable or m
 
 Every public endpoint keeps its existing default return shape. For example, `await client.extract(url="https://desearch.ai")` and the legacy `await client.web_crawl(url="https://desearch.ai")` both return raw text, while `await client.x_search(query="desearch")` returns the parsed tweet list or raw dictionary.
 
-Callers that pass `include_metadata=True` receive `DesearchResponse[data, metadata]` instead. The `data` field contains the same payload the method would have returned by default, and `metadata` is parsed from the same response headers: `X-Desearch-Cost-Usd` (for example `0.00015`), `X-Desearch-Usage-Count`, `X-Desearch-Service`, and `X-Desearch-Currency`. Numeric parse failures become `None` so successful API responses are not turned into SDK errors.
+Callers that pass `include_metadata=True` receive `DesearchResponse[data, metadata]` instead. The `data` field contains the same payload the method would have returned by default, and `metadata` is parsed from the same response headers: `X-Desearch-Cost-Usd` (for example `0.00015`), `X-Desearch-Usage-Count`, `X-Desearch-Service`, `X-Desearch-Currency`, and `x-desearch-next-cursor` (`next_cursor`, empty or missing becomes `None`). Numeric parse failures become `None` so successful API responses are not turned into SDK errors.
 
 ### 5. People Search is task-based
 
@@ -125,6 +125,20 @@ Two helpers sit on top of the plain route methods:
 Result filters are merged from a `PeopleResultFilters` object (or dict) and keyword arguments, then sent as query params: `has` comma-separated and booleans as `true`/`false`, because aiohttp rejects `bool` query values.
 
 A 409 from pause, resume, or cancel is raised as `PeopleTaskConflictError`, a `DesearchAPIError` subclass that also carries the task parsed from the (already redacted) response body. Like other HTTP errors it is raised with no `__cause__` or `__context__`.
+
+### 6. Social routes return one page; the cursor travels in metadata
+
+The TikTok, Instagram, and Facebook methods share two private helpers on top of `_handle_request()`: `_request_list()` parses a JSON array item by item into the route's model (and returns any non-list body unchanged, like `x_search`), and `_request_object()` parses one object. `search_api()`, `network_stats()`, and `network_stats_history()` use `_request_object()` too.
+
+List routes put the next-page cursor in the `x-desearch-next-cursor` response header, not in the body, so the body stays a plain JSON array. The SDK reads it into `DesearchCostMetadata.next_cursor`, which callers get with `include_metadata=True`, and sends it back as the `cursor` query param (GET routes) or body field (`tiktok_search`, `facebook_search`). The SDK never builds or edits a cursor and does not follow pages on its own. `instagram_search` and `tiktok_trending` take no cursor because those routes do not paginate.
+
+Path parameters go through `_path_segment()`, which percent-encodes the value with no safe characters. A `/` becomes `%2F`, so an Instagram post URL or an ID containing `/` stays one segment on the wire; the API decodes it before matching its `{id:path}` routes.
+
+### 7. The network stats stream has its own transport loop
+
+`stream_network_stats()` is an async generator. It opens `GET /network/stats/stream` with `Accept: text/event-stream` (plus `Last-Event-ID` when resuming) and its own timeout (`total=None`, `sock_read=60`) instead of the 120 second total used elsewhere. HTTP errors go through the same `_raise_if_http_error()` path, so they raise `DesearchAPIError` with the key redacted and no exception chain.
+
+`_ServerSentEventDecoder` turns body chunks of any size into events: it decodes UTF-8 incrementally, accepts CRLF, LF, and CR line endings (including a CRLF split across chunks), drops comments and unknown fields, joins `data` lines, and carries the last `id` forward. Only `stats` events are yielded, each parsed as `NetworkStatsResponse` inside a `NetworkStatsEvent`; a `stats` event whose data does not parse is skipped with a warning log. The generator does not reconnect; callers resume with `last_event_id`.
 
 ## Public API boundary
 
@@ -147,9 +161,9 @@ Practical effect:
 
 The repo keeps both Poetry and setuptools metadata:
 
-- `desearch_py.__version__` is `1.7.0` and is the single source of truth for the version
+- `desearch_py.__version__` is `1.8.0` and is the single source of truth for the version
 - `setup.py` packages the import module `desearch_py` and reads its version from `desearch_py/__init__.py` with a regex (it does not import the package)
-- `pyproject.toml` names the package `desearch-py` and repeats version `1.7.0`, because `poetry-core` cannot read a dynamic version; `tests/test_version_consistency.py` fails if it drifts
+- `pyproject.toml` names the package `desearch-py` and repeats version `1.8.0`, because `poetry-core` cannot read a dynamic version; `tests/test_version_consistency.py` fails if it drifts
 
 This dual-metadata setup supports multiple install flows, but it creates a maintenance obligation: version and dependency drift between the two files would be a release bug.
 
@@ -172,8 +186,8 @@ That means contributors should treat the checked source code and Markdown docs a
 The current implementation does **not** include:
 
 - built-in retries or backoff
-- automatic pagination helpers outside People Search results (`iter_people_results`)
-- streaming response handling
+- automatic pagination helpers outside People Search results (`iter_people_results`); social list methods return one page and expose the cursor
+- streaming AI search responses (the only streaming method is `stream_network_stats`)
 - sync client support
 - lint infrastructure inside this repo
 
