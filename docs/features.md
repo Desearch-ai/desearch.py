@@ -131,8 +131,8 @@ Searches run as background tasks. Only the four search methods are billed (per p
 | Surface | Status | Notes |
 |---|---|---|
 | Poetry metadata in `pyproject.toml` | ✅ | Declares package name `desearch-py`, version `1.6.1`, and runtime deps. |
-| setuptools metadata in `setup.py` | ✅ | Declares import package `desearch_py`, version `1.6.1`, and package data. |
-| Version parity between Poetry and setuptools | ✅ | `pyproject.toml`, `setup.py`, and `desearch_py.__version__` currently declare `1.6.1`. |
+| setuptools metadata in `setup.py` | ✅ | Declares import package `desearch_py` and package data; reads the version from `desearch_py.__version__`. |
+| Version parity between Poetry and setuptools | ✅ | `desearch_py.__version__` (`1.6.1`) is the source of truth; `tests/test_version_consistency.py` checks `pyproject.toml` and `setup.py` match it. |
 | Sphinx source files | ✅ | `docs/conf.py`, `docs/index.rst`, `docs/Makefile`, and `docs/make.bat` are present. |
 | Sphinx branding correctness | ❌ | `docs/conf.py` and generated `docs/_build/` still carry legacy `datura-py` / `Leva` metadata. |
 

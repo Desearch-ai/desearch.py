@@ -147,9 +147,9 @@ Practical effect:
 
 The repo keeps both Poetry and setuptools metadata:
 
-- `pyproject.toml` names the package `desearch-py` and declares version `1.6.1`
-- `setup.py` packages the import module `desearch_py` and also declares version `1.6.1`
-- `desearch_py.__version__` is `1.6.1`
+- `desearch_py.__version__` is `1.6.1` and is the single source of truth for the version
+- `setup.py` packages the import module `desearch_py` and reads its version from `desearch_py/__init__.py` with a regex (it does not import the package)
+- `pyproject.toml` names the package `desearch-py` and repeats version `1.6.1`, because `poetry-core` cannot read a dynamic version; `tests/test_version_consistency.py` fails if it drifts
 
 This dual-metadata setup supports multiple install flows, but it creates a maintenance obligation: version and dependency drift between the two files would be a release bug.
 

@@ -3,12 +3,13 @@ authors = ["Desearch AI <hello@desearch.ai>"]
 description = "Python SDK for Desearch API."
 name = "desearch-py"
 readme = "README.md"
+# Keep in sync with desearch_py/__init__.py; enforced by tests/test_version_consistency.py.
 version = "1.6.1"
 
 [tool.poetry.dependencies]
 aiohttp = ">=3.8"
 pydantic = ">=2.0"
-python = "^3.9"
+python = "^3.10"
 
 [tool.poetry.group.dev.dependencies]
 docutils = "^0.21.2"
