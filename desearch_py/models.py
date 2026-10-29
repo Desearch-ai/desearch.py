@@ -440,12 +440,23 @@ class WebSearchResultsResponse(BaseModel):
 
 
 class DesearchCostMetadata(BaseModel):
+    """Metadata parsed from Desearch response headers.
+
+    ``cost_usd``, ``usage_count``, ``service`` and ``currency`` come from the
+    ``X-Desearch-*`` billing headers. ``next_cursor`` is the
+    ``x-desearch-next-cursor`` header that TikTok, Instagram and Facebook list
+    routes send when another page exists; pass it back unchanged as
+    ``cursor``. It is ``None`` on the last page and on routes that do not
+    paginate.
+    """
+
     model_config = ConfigDict(extra="allow")
 
     cost_usd: Optional[float] = None
     usage_count: Optional[int] = None
     service: Optional[str] = None
     currency: Optional[str] = None
+    next_cursor: Optional[str] = None
 
 
 class DesearchResponse(BaseModel, Generic[T]):
@@ -526,6 +537,349 @@ class XTrendsResponse(BaseModel):
 
     trends: List[XTrendItem]
     woeid: Optional[XTrendsWoeid] = None
+
+
+# ─── TikTok Models ───────────────────────────────────────────────────────────
+#
+# Field names match the API's JSON (camelCase). Every field is optional because
+# the public provider does not always send it.
+
+
+class TikTokAuthor(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    id: Optional[str] = None
+    username: Optional[str] = None
+    nickname: Optional[str] = None
+    avatar: Optional[str] = None
+    verified: Optional[bool] = None
+    following: Optional[int] = None
+    followers: Optional[int] = None
+    heart: Optional[int] = None
+
+
+class TikTokStats(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    playCount: Optional[int] = None
+    digCount: Optional[int] = None
+    commentCount: Optional[int] = None
+    shareCount: Optional[int] = None
+    collectCount: Optional[int] = None
+
+
+class TikTokMusic(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    id: Optional[str] = None
+    title: Optional[str] = None
+    authorName: Optional[str] = None
+
+
+class TikTokPost(BaseModel):
+    """A public TikTok post.
+
+    ``id`` is the TikTok video ID and can be passed to ``tiktok_comments``.
+    ``providerId`` is the upstream ID when it differs. ``music`` is ``None`` on
+    hashtag and trending results.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    id: Optional[str] = None
+    providerId: Optional[str] = None
+    url: Optional[str] = None
+    text: Optional[str] = None
+    createTime: Optional[str] = None
+    author: Optional[TikTokAuthor] = None
+    stats: Optional[TikTokStats] = None
+    music: Optional[TikTokMusic] = None
+    hashtags: List[str] = Field(default_factory=list)
+    mentions: List[str] = Field(default_factory=list)
+    videoDuration: Optional[int] = None
+    videoWidth: Optional[int] = None
+    videoHeight: Optional[int] = None
+    thumbnailUrl: Optional[str] = None
+    mediaUrl: Optional[str] = None
+
+
+class TikTokComment(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    id: Optional[str] = None
+    videoId: Optional[str] = None
+    text: Optional[str] = None
+    createTime: Optional[str] = None
+    author: Optional[TikTokAuthor] = None
+    likes: Optional[int] = None
+    replies: List[Dict[str, Any]] = Field(default_factory=list)
+
+
+class TikTokProfile(TikTokAuthor):
+    bio: Optional[str] = None
+    videoCount: Optional[int] = None
+    digCount: Optional[int] = None
+
+
+# ─── Facebook Models ─────────────────────────────────────────────────────────
+
+
+class FacebookProfile(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    id: Optional[str] = None
+    username: Optional[str] = None
+    name: Optional[str] = None
+    url: Optional[str] = None
+    avatar: Optional[str] = None
+    verified: Optional[bool] = None
+    bio: Optional[str] = None
+    category: Optional[str] = None
+    followers: Optional[int] = None
+    likes: Optional[int] = None
+
+
+class FacebookPostStats(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    reactionCount: Optional[int] = None
+    commentCount: Optional[int] = None
+    shareCount: Optional[int] = None
+    viewCount: Optional[int] = None
+
+
+class FacebookMedia(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    type: Optional[str] = None
+    url: Optional[str] = None
+    thumbnail: Optional[str] = None
+    width: Optional[int] = None
+    height: Optional[int] = None
+
+
+class FacebookPost(BaseModel):
+    """A public Facebook post, or a Meta Ad Library record.
+
+    ``facebook_search`` and ``facebook_hashtag`` return Ad Library records,
+    which also set the ad fields: ``linkUrl`` (landing page), ``cta``,
+    ``headline``, ``linkDescription``, ``endDate``, ``active`` and
+    ``platforms``.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    id: Optional[str] = None
+    url: Optional[str] = None
+    text: Optional[str] = None
+    createTime: Optional[str] = None
+    author: Optional[FacebookProfile] = None
+    stats: Optional[FacebookPostStats] = None
+    media: List[FacebookMedia] = Field(default_factory=list)
+    hashtags: List[str] = Field(default_factory=list)
+    linkUrl: Optional[str] = None
+    cta: Optional[str] = None
+    headline: Optional[str] = None
+    linkDescription: Optional[str] = None
+    endDate: Optional[str] = None
+    active: Optional[bool] = None
+    platforms: List[str] = Field(default_factory=list)
+
+
+class FacebookComment(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    id: Optional[str] = None
+    postId: Optional[str] = None
+    text: Optional[str] = None
+    createTime: Optional[str] = None
+    author: Optional[FacebookProfile] = None
+    likes: Optional[int] = None
+    replies: List[Dict[str, Any]] = Field(default_factory=list)
+
+
+# ─── Instagram Models ────────────────────────────────────────────────────────
+
+
+class InstagramProfile(BaseModel):
+    """A public Instagram profile.
+
+    ``followers`` and ``postsCount`` are set only when the provider reports an
+    exact value.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    id: Optional[str] = None
+    username: Optional[str] = None
+    fullName: Optional[str] = None
+    biography: Optional[str] = None
+    avatar: Optional[str] = None
+    verified: Optional[bool] = None
+    private: Optional[bool] = None
+    followers: Optional[int] = None
+    following: Optional[int] = None
+    postsCount: Optional[int] = None
+    externalUrl: Optional[str] = None
+    category: Optional[str] = None
+
+
+class InstagramStats(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    likeCount: Optional[int] = None
+    commentCount: Optional[int] = None
+    viewCount: Optional[int] = None
+    playCount: Optional[int] = None
+
+
+class InstagramMedia(BaseModel):
+    """A public Instagram post. ``shortcode`` is what ``instagram_comments`` takes."""
+
+    model_config = ConfigDict(extra="allow")
+
+    id: Optional[str] = None
+    shortcode: Optional[str] = None
+    url: Optional[str] = None
+    caption: Optional[str] = None
+    createTime: Optional[str] = None
+    mediaType: Optional[str] = None
+    mediaUrl: Optional[str] = None
+    thumbnailUrl: Optional[str] = None
+    author: Optional[InstagramProfile] = None
+    stats: Optional[InstagramStats] = None
+    hashtags: List[str] = Field(default_factory=list)
+    mentions: List[str] = Field(default_factory=list)
+    children: List[Dict[str, Any]] = Field(default_factory=list)
+
+
+class InstagramComment(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    id: Optional[str] = None
+    mediaId: Optional[str] = None
+    text: Optional[str] = None
+    createTime: Optional[str] = None
+    author: Optional[InstagramProfile] = None
+    likes: Optional[int] = None
+    replies: List[Dict[str, Any]] = Field(default_factory=list)
+
+
+class InstagramSearchResult(BaseModel):
+    """One ``instagram_search`` result. ``type`` is ``profile``, ``hashtag`` or ``media``."""
+
+    model_config = ConfigDict(extra="allow")
+
+    id: Optional[str] = None
+    type: str
+    username: Optional[str] = None
+    title: Optional[str] = None
+    url: Optional[str] = None
+    avatar: Optional[str] = None
+    followers: Optional[int] = None
+    mediaCount: Optional[int] = None
+
+
+# ─── Search API Models (POST /search) ────────────────────────────────────────
+
+
+class SearchApiMode(str, Enum):
+    """``fast`` returns results sooner; ``balanced`` (the API default) favors relevance."""
+
+    FAST = "fast"
+    BALANCED = "balanced"
+
+
+class SearchApiResult(BaseModel):
+    """One ranked page.
+
+    ``highlights`` holds the passage that best matches the query (omitted when
+    the request sets ``highlights=False``). ``page_text`` is the full page text,
+    returned only when the request sets ``page_text=True``.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    url: str
+    title: str
+    published_date: Optional[str] = None
+    highlights: Optional[List[str]] = None
+    page_text: Optional[str] = None
+
+
+class SearchApiResponse(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    results: List[SearchApiResult]
+    cost_usd: Optional[float] = None
+    usage_count: Optional[int] = None
+    service: Optional[str] = None
+    currency: Optional[str] = None
+
+
+# ─── Network Stats Models ────────────────────────────────────────────────────
+#
+# Public counters for the Desearch network. ``telemetry_kind`` and
+# ``methodology`` say how they were produced (today ``estimated`` and
+# ``fixed_rate_projection``). Timestamps are ISO 8601 strings.
+
+
+class NetworkStatsRates(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    total_searchable_pages: int
+    searches_completed_today: int
+    urls_crawled_today: int
+
+
+class NetworkStatsResponse(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    total_searchable_pages: int
+    searches_completed_today: int
+    urls_crawled_today: int
+    rates_per_second: NetworkStatsRates
+    started_at: str
+    updated_at: str
+    telemetry_kind: str = "estimated"
+    methodology: str = "fixed_rate_projection"
+
+
+class NetworkStatsHistoryPoint(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    total_searchable_pages: int
+    searches_completed_today: int
+    urls_crawled_today: int
+    observed_at: str
+    telemetry_kind: str = "estimated"
+    methodology: str = "fixed_rate_projection"
+
+
+class NetworkStatsHistoryResponse(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    window_seconds: int
+    interval_seconds: int
+    window_started_at: str
+    window_ended_at: str
+    points: List[NetworkStatsHistoryPoint]
+
+
+class NetworkStatsEvent(BaseModel):
+    """One Server-Sent Event from ``stream_network_stats``.
+
+    ``id`` is the SSE event id (a unix timestamp in seconds). Pass the last one
+    you received as ``last_event_id`` when you reconnect to replay what you
+    missed (up to 20 minutes). ``event`` is the SSE event name (``stats``) and
+    ``data`` holds the same snapshot ``network_stats`` returns.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    id: Optional[str] = None
+    event: str = "stats"
+    data: NetworkStatsResponse
 
 
 # ─── People Search Request Models ────────────────────────────────────────────

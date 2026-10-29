@@ -2,7 +2,7 @@
 
 > Status key: ✅ working · ⚠️ degraded · ❌ broken · 🚧 in progress
 
-This inventory is derived from the current source in `desearch_py/api.py`, `desearch_py/models.py`, `pyproject.toml`, and `setup.py`. Current package version: **1.7.0**.
+This inventory is derived from the current source in `desearch_py/api.py`, `desearch_py/models.py`, `pyproject.toml`, and `setup.py`. Current package version: **1.8.0**.
 
 ## Overview
 
@@ -17,6 +17,8 @@ The SDK exposes one async client class, `Desearch`, plus a large set of typed mo
 | `async with Desearch(...)` | ✅ | `__aenter__` opens the session, `__aexit__` calls `close()`. |
 | `close()` | ✅ | Closes the underlying session when present. |
 | Shared request helper | ✅ | `_exchange()` applies a 120 second timeout. JSON methods use `_handle_request()`. HTTP failures raise `DesearchAPIError` with status and body only. |
+| Response metadata | ✅ | `include_metadata=True` returns `DesearchResponse` with cost headers and `next_cursor` (`x-desearch-next-cursor`). |
+| Path parameter encoding | ✅ | New path-parameter routes percent-encode the value as one segment, `/` included. |
 
 ## AI search features
 
@@ -86,6 +88,48 @@ The SDK exposes one async client class, `Desearch`, plus a large set of typed mo
 | `extract` | `GET /web/extract` | ✅ | Canonical extraction method with text/HTML, JavaScript rendering, and optional wait controls. |
 | `web_crawl` | `GET /web/crawl` | ⚠️ legacy | Deprecated compatibility method retained for existing clients. |
 
+## Search API features
+
+| Method | Endpoint | Status | Notes |
+|---|---|---|---|
+| `search_api` | `POST /search` | ✅ | Ranked pages with the best matching passage (`SearchApiResponse`). `mode` (`fast` / `balanced`), `count` (10, 15, 20), `start_date` / `end_date`, `highlights`, `page_text`; unset values are not sent. No method is named plain `search`. |
+
+## TikTok, Instagram, and Facebook features
+
+List methods return one page. `count` is a maximum (1-100). With `include_metadata=True`, `metadata.next_cursor` is the cursor for the next page (`None` on the last page); pass it back unchanged as `cursor`. A list method returns the raw `dict` when the API answers with an object instead of a list.
+
+| Method | Endpoint | Status | Notes |
+|---|---|---|---|
+| `tiktok_search` | `POST /desearch/tiktok/search` | ✅ | `query`, `count`, `cursor`, `sort`. `List[TikTokPost]`. |
+| `tiktok_post_by_id` | `GET /desearch/tiktok/post/{id}` | ✅ | `TikTokPost`. |
+| `tiktok_profile` | `GET /desearch/tiktok/profile/{username}` | ✅ | `TikTokProfile`. |
+| `tiktok_profile_posts` | `GET /desearch/tiktok/profile/{username}/posts` | ✅ | `count`, `cursor`. `List[TikTokPost]`. |
+| `tiktok_comments` | `GET /desearch/tiktok/comments/{video_id}` | ✅ | `count`, `cursor`. `List[TikTokComment]`. |
+| `tiktok_hashtag` | `GET /desearch/tiktok/hashtag/{tag}` | ✅ | `count`, `cursor`. `List[TikTokPost]`. |
+| `tiktok_trending` | `GET /desearch/tiktok/trending` | ✅ | `region`, `count`; no pagination. `List[TikTokPost]`. |
+| `instagram_search` | `POST /desearch/instagram/search` | ✅ | `query`, `count`; one page, no `cursor` (the API returns 422 for one). `List[InstagramSearchResult]`. |
+| `instagram_media` | `GET /desearch/instagram/media/{id}` | ✅ | Shortcode, media ID, or post URL. `InstagramMedia`. |
+| `instagram_profile` | `GET /desearch/instagram/profile/{username}` | ✅ | `InstagramProfile`. |
+| `instagram_profile_posts` | `GET /desearch/instagram/profile/{username}/posts` | ✅ | `count`, `cursor`. `List[InstagramMedia]`. |
+| `instagram_comments` | `GET /desearch/instagram/comments/{shortcode}` | ✅ | `count`, `cursor`. Shortcode only; numeric IDs return 404. `List[InstagramComment]`. |
+| `instagram_hashtag` | `GET /desearch/instagram/hashtag/{tag}` | ✅ | `count`, `cursor`. `List[InstagramMedia]`. |
+| `facebook_search` | `POST /desearch/facebook/search` | ✅ | Meta Ad Library records. `query`, `count`, `cursor`. `List[FacebookPost]`. |
+| `facebook_post_by_id` | `GET /desearch/facebook/post/{id}` | ✅ | `FacebookPost`. |
+| `facebook_profile` | `GET /desearch/facebook/profile/{profile_id}` | ✅ | `FacebookProfile`. |
+| `facebook_profile_posts` | `GET /desearch/facebook/profile/{profile_id}/posts` | ✅ | `count`, `cursor`. `List[FacebookPost]`. |
+| `facebook_comments` | `GET /desearch/facebook/comments/{post_id}` | ✅ | `count`, `cursor`; about 10 per page. `List[FacebookComment]`. |
+| `facebook_hashtag` | `GET /desearch/facebook/hashtag/{tag}` | ✅ | Meta Ad Library records. `count`, `cursor`. `List[FacebookPost]`. |
+
+## Network stats features
+
+Public routes: no API key is needed and they are free.
+
+| Method | Endpoint | Status | Notes |
+|---|---|---|---|
+| `network_stats` | `GET /network/stats` | ✅ | `NetworkStatsResponse`: current counters and per-second rates (an estimate). |
+| `network_stats_history` | `GET /network/stats/history` | ✅ | `NetworkStatsHistoryResponse`: one point per second for the last 20 minutes. |
+| `stream_network_stats` | `GET /network/stats/stream` | ✅ | Async iterator of `NetworkStatsEvent` from Server-Sent Events. `last_event_id` resumes (replay up to 20 minutes). No auto-reconnect. 60 second read timeout, no total timeout. |
+
 ## People Search features
 
 Searches run as background tasks. Only the four search methods are billed (per profile delivered); every task, results, export, and profiles call is free.
@@ -120,8 +164,8 @@ Searches run as background tasks. Only the four search methods are billed (per p
 
 | Surface | Status | Notes |
 |---|---|---|
-| Enums exported from package root | ✅ | `Tool`, `WebTool`, `DateFilter`, `ResultType`, `Sort`, `PeoplePlatform`, `PeopleTaskStatus`, `PeopleProfileSort`, `PeopleExportFormat`, `PeopleChannel`, `PeopleCompletionReason`, `PeopleCriterionVerdict`, `PeopleEnrichment`, `PeopleEnrichmentError` are all re-exported. |
-| Response models exported from package root | ✅ | Core search, web, X, People Search, and error models are re-exported. |
+| Enums exported from package root | ✅ | `Tool`, `WebTool`, `DateFilter`, `ResultType`, `Sort`, `SearchApiMode`, `PeoplePlatform`, `PeopleTaskStatus`, `PeopleProfileSort`, `PeopleExportFormat`, `PeopleChannel`, `PeopleCompletionReason`, `PeopleCriterionVerdict`, `PeopleEnrichment`, `PeopleEnrichmentError` are all re-exported. |
+| Response models exported from package root | ✅ | Core search, Search API, web, X, TikTok, Instagram, Facebook, network stats, People Search, and error models are re-exported. |
 | Forward-compatible parsing | ✅ | Models use `ConfigDict(extra="allow")` to tolerate extra API fields. |
 | Strict schema enforcement | ❌ | The SDK intentionally does not reject unknown fields. |
 | Type marker file | ✅ | `desearch_py/py.typed` is included in package data. |
@@ -130,18 +174,21 @@ Searches run as background tasks. Only the four search methods are billed (per p
 
 | Surface | Status | Notes |
 |---|---|---|
-| Poetry metadata in `pyproject.toml` | ✅ | Declares package name `desearch-py`, version `1.7.0`, and runtime deps. |
+| Poetry metadata in `pyproject.toml` | ✅ | Declares package name `desearch-py`, version `1.8.0`, and runtime deps. |
 | setuptools metadata in `setup.py` | ✅ | Declares import package `desearch_py` and package data; reads the version from `desearch_py.__version__`. |
-| Version parity between Poetry and setuptools | ✅ | `desearch_py.__version__` (`1.7.0`) is the source of truth; `tests/test_version_consistency.py` checks `pyproject.toml` and `setup.py` match it. |
-| Sphinx source files | ✅ | `docs/conf.py`, `docs/index.rst`, `docs/Makefile`, and `docs/make.bat` are present. |
+| Version parity between Poetry and setuptools | ✅ | `desearch_py.__version__` (`1.8.0`) is the source of truth; `tests/test_version_consistency.py` checks `pyproject.toml` and `setup.py` match it. |
+| Sphinx source files | ✅ | `docs/conf.py`, `docs/index.rst`, `docs/endpoints.rst` (the 1.8.0 methods), `docs/Makefile`, and `docs/make.bat` are present. |
 | Sphinx branding correctness | ❌ | `docs/conf.py` and generated `docs/_build/` still carry legacy `datura-py` / `Leva` metadata. |
 
 ## Status summary
 
 | Category | ✅ | ⚠️ | ❌ | 🚧 |
 |---|---|---|---|---|
-| Client lifecycle | 5 | 0 | 0 | 0 |
+| Client lifecycle | 7 | 0 | 0 | 0 |
 | AI search | 2 | 1 | 1 | 0 |
+| Search API | 1 | 0 | 0 | 0 |
+| TikTok / Instagram / Facebook | 19 | 0 | 0 | 0 |
+| Network stats | 3 | 0 | 0 | 0 |
 | X / Twitter | 3 | 6 | 0 | 0 |
 | Web | 1 | 1 | 0 | 0 |
 | People Search | 13 | 0 | 0 | 0 |

@@ -2,7 +2,7 @@
 
 This list covers real current limitations verified from the repository source.
 
-## 1. Streaming is not actually available in the SDK
+## 1. AI search streaming is not available in the SDK
 
 **What happens**
 
@@ -10,7 +10,7 @@ This list covers real current limitations verified from the repository source.
 
 **Why unresolved**
 
-There is no streaming transport, async iterator response path, or SSE handling anywhere in `desearch_py/api.py`.
+The only streaming method is `stream_network_stats()`, which reads the network stats Server-Sent Events. There is no streaming path for AI search.
 
 **Impact**
 
@@ -31,6 +31,7 @@ These methods fall back to raw `dict` values when the response shape is not what
 - `x_posts_by_user`
 - `x_user_replies`
 - `x_post_replies`
+- the TikTok, Instagram, and Facebook methods that return a list, when the API answers with an object instead of a list
 
 **Why unresolved**
 
@@ -74,7 +75,7 @@ Timeout configuration is not exposed on the client or individual methods.
 
 **Impact**
 
-Long-running extraction or search calls cannot be tuned per environment. Large People Search exports (`export_people_profiles` returns up to 10,000 people) must also finish within 120 seconds. `wait_for_people_task()` is not affected: each poll is its own short request.
+Long-running extraction or search calls cannot be tuned per environment. Large People Search exports (`export_people_profiles` returns up to 10,000 people) must also finish within 120 seconds. `wait_for_people_task()` is not affected: each poll is its own short request. `stream_network_stats()` has no total timeout but a fixed 60 second read timeout, also not configurable.
 
 **Workaround**
 
@@ -84,7 +85,7 @@ Keep requests small where possible, or enforce higher-level timeout handling aro
 
 **What happens**
 
-Cursor-aware endpoints like `x_post_retweeters()`, `x_user_posts()`, `list_people_tasks()`, and `list_people_profiles()` return typed responses with cursor fields, but the SDK does not auto-follow them. People Search task results are the exception: `iter_people_results()` follows `next_cursor` for you.
+Cursor-aware endpoints like `x_post_retweeters()`, `x_user_posts()`, `list_people_tasks()`, and `list_people_profiles()` return typed responses with cursor fields, but the SDK does not auto-follow them. The TikTok, Instagram, and Facebook list methods return one page; their cursor is only available as `metadata.next_cursor` with `include_metadata=True`. People Search task results are the exception: `iter_people_results()` follows `next_cursor` for you.
 
 **Why unresolved**
 
@@ -96,7 +97,7 @@ Consumers must manage cursors manually across multiple requests.
 
 **Workaround**
 
-Persist `next_cursor` from each response and pass it into the next request yourself.
+Persist `next_cursor` from each response (or from `response.metadata.next_cursor` for the social list methods) and pass it into the next request yourself. See the pagination example in the README.
 
 ## 6. Extraction methods return raw text only
 
@@ -156,7 +157,7 @@ Use `README.md` and the Markdown files in `docs/` as the current documentation s
 
 | Limitation | Severity | Workaround |
 |---|---|---|
-| Streaming unavailable | Medium | Use full-response search only |
+| AI search streaming unavailable | Medium | Use full-response search only |
 | Mixed typed and raw dict returns | Medium | Add runtime type checks |
 | No retry/backoff | Medium | Retry in caller |
 | Fixed 120 second timeout | Low | Control timeout behavior at the caller layer |
