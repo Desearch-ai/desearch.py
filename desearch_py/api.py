@@ -933,12 +933,13 @@ class Desearch:
 
         Args:
             url (str): Public URL to extract content from.
-            format (Optional[str]): Output format (``html`` or ``text``).
+            format (Optional[str]): Output format: ``text`` (default),
+                ``markdown`` or ``html``.
             js (bool): Render JavaScript before extraction.
             wait (Optional[int]): Extra post-load wait in milliseconds when
                 JavaScript rendering is enabled.
-            full_page (bool): With ``format="text"``, return all visible text
-                of the page instead of its main content.
+            full_page (bool): Only with ``format="text"``: return all visible
+                text of the page instead of its main content.
 
         Returns:
             str: The extracted content, optionally wrapped with response metadata.
