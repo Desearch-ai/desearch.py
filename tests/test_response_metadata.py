@@ -123,7 +123,9 @@ class ResponseMetadataTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsInstance(urls_result.data[0], TwitterScraperTweet)
         self.assertEqual(urls_result.metadata.cost_usd, 0.00005)
 
-        crawl_client = self.make_client(FakeResponse(text_data="content", headers=headers))
+        crawl_client = self.make_client(
+            FakeResponse(text_data="content", headers=headers)
+        )
         crawl_result = await crawl_client.web_crawl(
             url="https://desearch.ai", include_metadata=True
         )
@@ -140,9 +142,7 @@ class ResponseMetadataTests(unittest.IsolatedAsyncioTestCase):
         extract_result = await client.extract(
             url="https://desearch.ai", format="text", js=True, wait=250
         )
-        legacy_result = await client.web_crawl(
-            url="https://desearch.ai", format="html"
-        )
+        legacy_result = await client.web_crawl(url="https://desearch.ai", format="html")
 
         self.assertEqual(extract_result, "canonical content")
         self.assertEqual(legacy_result, "legacy content")
@@ -168,6 +168,18 @@ class ResponseMetadataTests(unittest.IsolatedAsyncioTestCase):
             {"url": "https://desearch.ai", "format": "html"},
         )
 
+    async def test_extract_sends_full_page_only_when_set(self):
+        client = self.make_client(
+            FakeResponse(text_data="every section"),
+            FakeResponse(text_data="main content"),
+        )
+
+        await client.extract(url="https://desearch.ai", full_page=True)
+        await client.extract(url="https://desearch.ai")
+
+        self.assertEqual(client.client.requests[0][2]["params"]["full_page"], "true")
+        self.assertNotIn("full_page", client.client.requests[1][2]["params"])
+
     async def test_legacy_cents_header_is_not_treated_as_canonical_usd_metadata(self):
         client = self.make_client(
             FakeResponse(
@@ -183,7 +195,9 @@ class ResponseMetadataTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsInstance(result, DesearchResponse)
         self.assertIsNone(result.metadata.cost_usd)
 
-    async def test_missing_or_malformed_metadata_headers_do_not_break_successful_calls(self):
+    async def test_missing_or_malformed_metadata_headers_do_not_break_successful_calls(
+        self,
+    ):
         client = self.make_client(
             FakeResponse(
                 json_data={"text": "ok"},
