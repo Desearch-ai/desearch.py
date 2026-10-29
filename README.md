@@ -2,7 +2,7 @@
 
 Official async Python SDK for the Desearch API.
 
-`desearch-py` is a thin `aiohttp` client for the Desearch public API. It wraps search, X, extraction, and People Search endpoints behind a single async client class and returns `pydantic` models for most successful responses. The package metadata currently reports **version 1.7.0** and requires **Python 3.10+**. See [CHANGELOG.md](CHANGELOG.md) for unreleased and breaking changes.
+`desearch-py` is a thin `aiohttp` client for the Desearch public API. It wraps search, X, extraction, and People Search endpoints behind a single async client class and returns `pydantic` models for most successful responses. The package metadata currently reports **version 1.8.0** and requires **Python 3.10+**. See [CHANGELOG.md](CHANGELOG.md) for unreleased and breaking changes.
 
 ## Package purpose
 
@@ -321,6 +321,14 @@ content = await client.extract(
     wait=250,
 )
 ```
+
+`format="text"` returns the page's main content, which can leave out tables, notices and other sections. Pass `full_page=True` for all visible text of the page, one block per line:
+
+```python
+content = await client.extract(url="https://peles.ro/en/program-si-taxe/", full_page=True)
+```
+
+Pages that cannot be served raise `DesearchAPIError` and are not charged. The JSON body's `error_code` says why: `page_not_found` (404), `js_required` (422, retry with `js=True`), `blocked` (503, the site refused the request or answered with a bot check), `upstream_timeout` and `upstream_failed` (503).
 
 Existing `web_crawl()` integrations continue to work through the legacy route. Use `extract()` for new integrations.
 

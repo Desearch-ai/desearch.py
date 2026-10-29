@@ -5,10 +5,17 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-> Note: the version in this repository is 1.7.0 (main was 1.6.2 before this
-> change), but the latest release published on PyPI is 1.2.1. Versions 1.3.0
+> Note: the version in this repository is 1.8.0, but the latest release
+> published on PyPI is 1.2.1. Versions 1.3.0
 > through 1.6.2 were never published to PyPI and are not recorded individually
 > here.
+
+## [1.8.0] - unreleased (not yet published to PyPI)
+
+### Added
+
+- `extract(..., full_page=True)` returns all visible text of the page instead
+  of its main content (with `format="text"`).
 
 ## [1.7.0] - unreleased (not yet published to PyPI)
 

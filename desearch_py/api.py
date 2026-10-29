@@ -925,6 +925,7 @@ class Desearch:
         format: Optional[str] = "text",
         js: bool = False,
         wait: Optional[int] = None,
+        full_page: bool = False,
         *,
         include_metadata: bool = False,
     ) -> Union[str, DesearchResponse[str]]:
@@ -936,6 +937,8 @@ class Desearch:
             js (bool): Render JavaScript before extraction.
             wait (Optional[int]): Extra post-load wait in milliseconds when
                 JavaScript rendering is enabled.
+            full_page (bool): With ``format="text"``, return all visible text
+                of the page instead of its main content.
 
         Returns:
             str: The extracted content, optionally wrapped with response metadata.
@@ -947,6 +950,7 @@ class Desearch:
                 "format": format,
                 "js": "true" if js else "false",
                 "wait": wait,
+                "full_page": "true" if full_page else None,
             }.items()
             if v is not None
         }
