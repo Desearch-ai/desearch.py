@@ -2,7 +2,7 @@
 
 Official async Python SDK for the Desearch API.
 
-`desearch-py` is a thin `aiohttp` client for the Desearch public API. It wraps search, X, extraction, and People Search endpoints behind a single async client class and returns `pydantic` models for most successful responses. The package metadata currently reports **version 1.9.0** and requires **Python 3.10+**. See [CHANGELOG.md](CHANGELOG.md) for unreleased and breaking changes.
+`desearch-py` is a thin `aiohttp` client for the Desearch public API. It wraps search, X, extraction, People Search, and Company Search endpoints behind a single async client class and returns `pydantic` models for most successful responses. The package metadata currently reports **version 1.10.0** and requires **Python 3.10+**. See [CHANGELOG.md](CHANGELOG.md) for unreleased and breaking changes.
 
 ## Package purpose
 
@@ -255,6 +255,144 @@ HTTP errors raise `DesearchAPIError`, as elsewhere in the SDK. Statuses specific
 - `410`: the results expired (they are kept 30 days after the search ends).
 - `409` from pause, resume, or cancel raises `PeopleTaskConflictError`, a `DesearchAPIError` subclass. `.detail` explains why, and `.task` holds the task's current state.
 
+## Company Search
+
+Company Search finds companies, not pages. Describe the companies you want in plain language and get each one with a fit score, its public emails, phones, and social profiles, and its leaders (by default the CEO, founders, CTO, and CFO) with their LinkedIn profiles and emails. Company Enrich collects the same data for domains you already have. Every contact keeps the page it came from (`source_url`). Both run in the background as tasks on the People Search engine: you start one, wait for it, then read or export the companies (1.10.0 and later).
+
+```python
+import asyncio
+
+from desearch_py import CompanyRequirement, CompanySearchFilters, Desearch
+
+
+async def main() -> None:
+    async with Desearch(api_key="your_api_key") as client:
+        # 1. Start the search. This is the only billed call.
+        task = await client.company_search(
+            query="Series A fintech startups in Berlin building payment infrastructure",
+            count=25,
+            min_score=60,
+            exclude=["stripe.com"],
+            filters=CompanySearchFilters(
+                countries=["DE"], require=[CompanyRequirement.EMAIL]
+            ),
+            idempotency_key="berlin-fintech-2026-10",
+        )
+        print(task.task_id, task.status, task.reserved_cost_usd)
+
+        # 2. Wait until it ends (polls every 5 seconds, up to 10 minutes).
+        task = await client.wait_for_company_task(task.task_id)
+        print(task.status, task.completion_reason, task.result_count, task.final_cost_usd)
+
+        # 3. Read every company, page by page.
+        async for company in client.iter_company_results(task.task_id):
+            score = company.score.value if company.score else None
+            primary = company.primary_email.value if company.primary_email else None
+            print(company.domain, company.name, score, primary)
+
+        # 4. Or download them all as CSV, one row per company.
+        csv_text = await client.export_company_results(task.task_id, format="csv")
+        with open("companies.csv", "w", encoding="utf-8", newline="") as handle:
+            handle.write(csv_text)
+
+
+asyncio.run(main())
+```
+
+Company Enrich starts from domains or URLs instead of a description. The API reduces each one to its host without `www.`, lowercases and deduplicates them, and the task's `count` is the number left:
+
+```python
+task = await client.company_enrich(
+    domains=["acme.com", "https://www.beta.io/about"],
+    roles=["ceo", "cto"],
+)
+print(task.count, task.query)  # 2 "acme.com, beta.io"
+
+task = await client.wait_for_company_task(task.task_id)
+async for company in client.iter_company_results(task.task_id):
+    print(company.domain, company.score)  # score is None for Company Enrich
+```
+
+### Company Search pricing
+
+You are billed per company delivered. Company Search reserves `count` companies at the route price; when it ends you pay only for the companies it delivered, with a minimum of 2 when it delivers any. Company Enrich reserves one company per domain you send and bills a minimum of 1; the rest of the reservation, including duplicate domains, is returned. A company left out by `min_score` or `filters.require` is not billed, and a task that delivers no companies is free. Waiting, reading results, exports, listing tasks, pausing, resuming, and cancelling are free. Results are kept 30 days after the task ends. See <https://desearch.ai/pricing> for current prices.
+
+### Company Search methods
+
+| Method | Route | Returns |
+|---|---|---|
+| `company_search` | `POST /desearch/companies/search` | `CompanyTask` |
+| `company_enrich` | `POST /desearch/companies/enrich` | `CompanyTask` |
+| `list_company_tasks` | `GET /desearch/companies/tasks` | `CompanyTaskList` |
+| `get_company_task` | `GET /desearch/companies/tasks/{task_id}` | `CompanyTask` |
+| `get_company_results` | `GET /desearch/companies/tasks/{task_id}/results` | `CompanyResultsPage` |
+| `pause_company_task` / `resume_company_task` / `cancel_company_task` | `POST /desearch/companies/tasks/{task_id}/pause` (`/resume`, `/cancel`) | `CompanyTask` |
+| `export_company_results` | `GET /desearch/companies/tasks/{task_id}/export` | CSV or JSON Lines text |
+| `wait_for_company_task` | polls `get_company_task` | the ended `CompanyTask` |
+| `iter_company_results` | follows `next_cursor` on `get_company_results` | async iterator of `Company` |
+
+`company_search` takes `query` (3-1000 characters), `count` (5-200, API default 25), `min_score` (0-100), `exclude` (domains or URLs to skip, up to 1000), `roles`, `infer_emails`, `verify_emails`, `filters`, and `metadata`. `company_enrich` takes `domains` (1-200 domains or URLs), `roles`, `infer_emails`, `verify_emails`, and `metadata`.
+
+- `roles` lists the leaders to look for (`CompanyRole`): `ceo`, `founder`, `cto`, `cfo`, `coo`, `cmo`, `president`, `owner`, `managing_director`. The API default is `ceo`, `founder`, `cto`, `cfo`. A managing director (Geschäftsführer) counts as `ceo` when `ceo` is asked for.
+- `infer_emails` (API default `True`) guesses leaders' emails from the company's address pattern. `verify_emails` (API default `True`) checks every email; turn it off to finish sooner without `verification`.
+- `filters` is a `CompanySearchFilters` or a dict: `countries` (ISO 3166-1 alpha-2 codes or names, up to 20; scoring treats them as a location criterion) and `require` (`CompanyRequirement`: `email`, `phone`, `linkedin`, `leader`, `leader_email`). A company that does not have what you require is not delivered and not billed.
+- `metadata`, `idempotency_key`, and `include_metadata=True` work as in People Search. `list_company_tasks` takes `type` (`search` or `enrich`, see `CompanyTaskType`), `status`, `limit`, `cursor`, and a `metadata` filter, like `list_people_tasks`. People Search tasks are not listed there.
+- `wait_for_company_task` works like `wait_for_people_task` and raises `CompanyTaskTimeoutError` (with the last state on `.task`) on timeout.
+
+### How companies fill in
+
+Each company goes through five stages: `profile` (the homepage, and for Company Search the fit score), `contacts` (up to 4 contact, imprint, team, and about pages), `people` (leaders from the site's own pages, then LinkedIn), `email_patterns` (leaders' emails inferred from the company's pattern), and `email_check` (every email checked). A company is published as soon as the stages its request needs have run, with `enrichment.status` `partial`. The later stages fill it in on the server, and it is `complete` once no stage is `pending` (a stage cut by the time limit is `skipped`).
+
+| `filters.require` contains | Published after |
+|---|---|
+| nothing (and every Company Enrich) | `profile` |
+| `email`, `phone`, `linkedin` | `contacts` |
+| `leader` | `people` |
+| `leader_email` | `email_check` |
+
+- While companies already published are still being filled in, the task is `running` with `stage` `enriching`. Read the companies after `wait_for_company_task` returns to get their final version.
+- `get_company_results` and `iter_company_results` return each company as it is when read. Keep `next_cursor` to get only new companies, and read again without `cursor` to get the latest version of the ones you have.
+- Fields a later stage fills in are optional: `people`, `phones`, and `socials` are `[]`, and `primary_email`, `primary_contact`, `contact_coverage`, and each email's `verification` are `None` until their stage has run.
+- `enrichment.stages` says where a company is: each stage is `pending`, `done`, `failed`, or `skipped` (turned off by the request, such as `infer_emails=False`, or nothing to do). `enrichment.errors` lists what failed.
+
+### Reading a company
+
+```python
+async for company in client.iter_company_results(task.task_id):
+    print(company.name, company.domain, company.industry)
+    for email in company.emails:
+        print("  company email:", email.value, email.type, email.source_url)
+    if company.score:  # None for Company Enrich
+        unverified = [check.criterion for check in company.score.unverified_criteria]
+        print("  score:", company.score.value, company.score.fully_verified, unverified)
+    for leader in company.people:
+        print("  leader:", leader.name, leader.title, leader.roles, leader.linkedin_url)
+        for email in leader.emails:
+            status = email.verification.status if email.verification else None
+            # An inferred email is guessed from the company's address pattern.
+            print("    ", email.value, email.source, email.confidence, email.pattern, status)
+```
+
+- `emails[].type` is `personal`, `leadership`, `sales`, `general`, `press`, `support`, `careers`, `legal`, or `other`. `primary_email` is only ever `personal`, `leadership`, `sales`, or `general`, and an inferred one only when it is `valid`. `primary_contact` is the person to contact first, with the `reason` they were picked.
+- `source` (`website`, `search`, `linkedin`, or `inferred`) and `source_url` say where each email, phone, and social profile came from. An inferred email has no `source_url`, a `confidence` of `high` (pattern learned from the company's own addresses) or `low` (a common pattern), and the `pattern` used, such as `first.last`.
+- `verification.status` (`CompanyEmailStatus`) is `valid`, `invalid`, `risky` (catch-all domain, or no MX record but an A record), or `unknown` (nothing could confirm or refute it). `verification.checks` has `syntax`, `mx`, `smtp`, and `web`.
+- `people[].verified` is true when a quote on the company's own site or the person's current LinkedIn position shows the role. `people[].evidence` holds the quote and its page.
+- `contact_coverage` says what was found, under the names `filters.require` uses.
+- `score.criteria_checks` reuses `PeopleCriterionCheck`, and `score.unverified_criteria` and `score.fully_verified` work as in People Search, against the company's own pages. `score.relevance` is `high`, `medium`, or `low`.
+- `task.completion_reason` (`CompanyCompletionReason`) adds `all_domains_processed` (Company Enrich read every domain) to the People Search reasons. `coverage_limited` works as in People Search, and `warnings` holds `CompanyTaskWarning` items such as `enrichment_time_limit`. `task.request` is the normalized request.
+- The CSV export has one row per company: domain, name, score, location, primary email, emails, phones, and social profiles, then the CEO (or managing director), founder, CTO, and CFO with title, email, email status, and LinkedIn, and `fully_verified`, `unverified_criteria`, and `enrichment_status`. JSON Lines has every field.
+
+### Company Search errors
+
+HTTP errors raise `DesearchAPIError`, with the same statuses as People Search:
+
+- `402`: the account has no credits for the reservation.
+- `422`: an invalid request, for example a domain that is an IP address or `localhost`.
+- `429`: too many People Search and Company Search tasks are already queued, running, or paused.
+- `404`: the task does not exist or belongs to another account. A People Search task ID is a 404 on the company routes, and a company task ID on the People Search routes.
+- `410`: the results expired (they are kept 30 days after the task ends).
+- `409` from pause, resume, or cancel raises `CompanyTaskConflictError`, a `DesearchAPIError` subclass. `.detail` explains why, and `.task` holds the task's current state as a `CompanyTask`.
+
 ## Requirements
 
 Dependencies declared in source:
@@ -277,7 +415,7 @@ Dependencies declared in source:
 | Run tests | `poetry run python -m unittest discover -s tests -v` | Uses the stdlib unittest runner |
 | Build Sphinx docs | `make -C docs html` | Requires Sphinx dev deps |
 
-A unittest suite covers response metadata, API key redaction, and People Search, with HTTP mocked or served from a local test server. There is still no dedicated lint or format command configured in the repo.
+A unittest suite covers response metadata, API key redaction, People Search, and Company Search, with HTTP mocked or served from a local test server. There is still no dedicated lint or format command configured in the repo.
 
 ## Tech stack
 
@@ -348,9 +486,19 @@ Existing `web_crawl()` integrations continue to work through the legacy route. U
 
 See [People Search](#people-search) for an example, pricing, and filters.
 
+### Company Search endpoints
+
+- `company_search`, `company_enrich`
+- `list_company_tasks`, `get_company_task`, `get_company_results`
+- `pause_company_task`, `resume_company_task`, `cancel_company_task`
+- `export_company_results`
+- helpers: `wait_for_company_task`, `iter_company_results`
+
+See [Company Search](#company-search) for an example, pricing, and how results fill in.
+
 ### Typed exports
 
-The package re-exports the async client plus enums and models from `desearch_py.models`, including `Tool`, `WebTool`, `DateFilter`, `ResultType`, `Sort`, `ResponseData`, `DesearchCostMetadata`, `DesearchResponse`, `TwitterScraperTweet`, `WebSearchResponse`, `WebSearchResultsResponse`, `XLinksSearchResponse`, `XRetweetersResponse`, `XUserPostsResponse`, and `XTrendsResponse`. People Search adds `PeopleTask`, `PeopleTaskList`, `PeopleResultsPage`, `Person`, `PeopleProfile`, `PeopleProfilesPage`, `PeopleResultFilters`, the four request and filters models, the result models `PeopleTaskWarning` and `PeopleCriterionCheck`, the enums `PeoplePlatform`, `PeopleTaskStatus`, `PeopleProfileSort`, `PeopleExportFormat`, `PeopleChannel`, `PeopleCompletionReason`, `PeopleCriterionVerdict`, `PeopleEnrichment`, and `PeopleEnrichmentError`, and the errors `PeopleTaskConflictError` and `PeopleTaskTimeoutError`.
+The package re-exports the async client plus enums and models from `desearch_py.models`, including `Tool`, `WebTool`, `DateFilter`, `ResultType`, `Sort`, `ResponseData`, `DesearchCostMetadata`, `DesearchResponse`, `TwitterScraperTweet`, `WebSearchResponse`, `WebSearchResultsResponse`, `XLinksSearchResponse`, `XRetweetersResponse`, `XUserPostsResponse`, and `XTrendsResponse`. People Search adds `PeopleTask`, `PeopleTaskList`, `PeopleResultsPage`, `Person`, `PeopleProfile`, `PeopleProfilesPage`, `PeopleResultFilters`, the four request and filters models, the result models `PeopleTaskWarning` and `PeopleCriterionCheck`, the enums `PeoplePlatform`, `PeopleTaskStatus`, `PeopleProfileSort`, `PeopleExportFormat`, `PeopleChannel`, `PeopleCompletionReason`, `PeopleCriterionVerdict`, `PeopleEnrichment`, and `PeopleEnrichmentError`, and the errors `PeopleTaskConflictError` and `PeopleTaskTimeoutError`. Company Search adds the request models `CompanySearchRequest`, `CompanySearchFilters`, and `CompanyEnrichRequest`, the task models `CompanyTask`, `CompanyTaskList`, and `CompanyTaskWarning`, the result models `CompanyResultsPage`, `Company`, `CompanyEmail`, `CompanyEmailVerification`, `CompanyEmailChecks`, `CompanyPhone`, `CompanySocial`, `CompanyPage`, `CompanyLocation`, `CompanyPerson`, `CompanyPersonEvidence`, `CompanyPrimaryContact`, `CompanyContactCoverage`, `CompanyEnrichment`, `CompanyEnrichmentStages`, `CompanyEnrichmentError`, `CompanyScore`, and `CompanyFoundBy`, the enums `CompanyTaskType`, `CompanyRole`, `CompanyRequirement`, `CompanyCompletionReason`, and `CompanyEmailStatus`, and the errors `CompanyTaskConflictError` and `CompanyTaskTimeoutError`. It reuses `PeopleTaskStatus`, `PeopleExportFormat`, `PeopleCriterionCheck`, `PeopleTaskLinks`, and `PeopleTaskCreatedBy`.
 
 ## Architecture overview
 
@@ -369,7 +517,7 @@ Key design decisions visible in code:
 - `x_posts_by_urls` and the extraction methods use specialized request paths for repeated query parameters and text responses, while still supporting the metadata wrapper
 - some endpoints fall back to raw `dict` values instead of failing model parsing
 - `ai_search` always sends `"streaming": False`
-- People Search searches are background tasks; `wait_for_people_task` and `iter_people_results` are the SDK's only polling and pagination helpers
+- People Search and Company Search run as background tasks; `wait_for_people_task`, `iter_people_results`, `wait_for_company_task`, and `iter_company_results` are the SDK's only polling and pagination helpers
 
 ## Usage notes
 

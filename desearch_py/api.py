@@ -12,6 +12,14 @@ import aiohttp
 from pydantic import BaseModel, ValidationError
 
 from .models import (
+    Company,
+    CompanyEnrichRequest,
+    CompanyResultsPage,
+    CompanySearchFilters,
+    CompanySearchRequest,
+    CompanyTask,
+    CompanyTaskList,
+    CompanyTaskType,
     DesearchCostMetadata,
     DesearchResponse,
     LinkedInProfileSearchFilters,
@@ -107,6 +115,48 @@ class PeopleTaskTimeoutError(TimeoutError):
         self.timeout = timeout
         super().__init__(
             f"People Search task {task.task_id} is still {task.status} "
+            f"after {timeout:g} seconds"
+        )
+
+
+class CompanyTaskConflictError(DesearchAPIError):
+    """HTTP 409 from a Company Search or Company Enrich pause, resume or cancel call.
+
+    The task is not in a state that allows the action. ``detail`` is the API's
+    explanation and ``task`` is the task's current state from the response
+    body (``None`` when the body could not be parsed).
+    """
+
+    def __init__(
+        self,
+        status: int,
+        message: str = "",
+        body: str = "",
+        detail: str = "",
+        task: Optional[CompanyTask] = None,
+    ) -> None:
+        super().__init__(status=status, message=message, body=body)
+        self.detail = detail
+        self.task = task
+
+
+class CompanyTaskTimeoutError(TimeoutError):
+    """Raised by ``wait_for_company_task`` when a task has not ended in time.
+
+    ``task`` is the last state read. The task keeps running on the server;
+    call ``cancel_company_task`` if you no longer need it.
+    """
+
+    def __init__(self, task: CompanyTask, timeout: float) -> None:
+        self.task = task
+        self.timeout = timeout
+        product = (
+            "Company Enrich"
+            if task.search_type == "company_enrich"
+            else "Company Search"
+        )
+        super().__init__(
+            f"{product} task {task.task_id} is still {task.status} "
             f"after {timeout:g} seconds"
         )
 
@@ -1715,6 +1765,518 @@ class Desearch:
             )
             for person in page.results:
                 yield person
+            cursor = page.next_cursor
+            if not page.has_more or not page.results:
+                return
+
+    # ─── Company Search ──────────────────────────────────────────────────────
+
+    @staticmethod
+    def _company_task_path(task_id: Union[str, UUID], suffix: str = "") -> str:
+        return f"/desearch/companies/tasks/{quote(str(task_id), safe='')}{suffix}"
+
+    async def _create_company_task(
+        self,
+        route: str,
+        request: BaseModel,
+        idempotency_key: Optional[str],
+        include_metadata: bool,
+    ) -> Union[CompanyTask, DesearchResponse[CompanyTask]]:
+        url = f"{self.base_url}/desearch/companies/{route}"
+        kwargs: Dict[str, Any] = {
+            "json": request.model_dump(exclude_none=True, mode="json")
+        }
+        if idempotency_key:
+            kwargs["headers"] = {"Idempotency-Key": str(idempotency_key)}
+        result = await self._handle_request(
+            "POST", url, include_metadata=include_metadata, **kwargs
+        )
+        data, metadata = self._split_response(result, include_metadata)
+        return self._with_metadata(CompanyTask(**data), metadata, include_metadata)
+
+    async def company_search(
+        self,
+        query: str,
+        count: Optional[int] = None,
+        min_score: Optional[int] = None,
+        exclude: Optional[List[str]] = None,
+        roles: Optional[List[str]] = None,
+        infer_emails: Optional[bool] = None,
+        verify_emails: Optional[bool] = None,
+        filters: Optional[Union[CompanySearchFilters, Dict[str, Any]]] = None,
+        metadata: Optional[Dict[str, str]] = None,
+        *,
+        idempotency_key: Optional[str] = None,
+        include_metadata: bool = False,
+    ) -> Union[CompanyTask, DesearchResponse[CompanyTask]]:
+        """
+        Start a Company Search: companies found on the web from a description, with their public contact data.
+
+        The search looks for the companies' websites, reads each homepage and
+        scores how well the company fits, then reads its contact, about, team
+        and imprint pages for emails, phones and social profiles, finds its
+        leaders (``roles``) with their LinkedIn profiles, infers their emails
+        from the company's address pattern and checks every email. Every
+        contact keeps the page it came from (``source_url``).
+
+        The task runs in the background and this returns it at once. A company
+        is published as soon as the stages the request needs have run (its
+        homepage; with ``filters.require``, the stage that can show what you
+        require), with ``enrichment.status`` ``partial``; the later stages fill
+        it in. Wait with :meth:`wait_for_company_task`, then read companies
+        with :meth:`iter_company_results` or :meth:`export_company_results`.
+
+        Billing: ``count`` companies are reserved at the route price. When the
+        task ends you pay only for the companies it delivered, with a minimum
+        of 2 when it delivers any; a company left out by ``min_score`` or
+        ``filters.require`` is not billed, and a task that delivers none is
+        free. See https://desearch.ai/pricing.
+
+        Args:
+            query (str): The companies you are looking for, in plain language: what they do,
+                where, how far along (3-1000 characters).
+            count (Optional[int]): How many companies to deliver (5-200; the API default is 25).
+            min_score (Optional[int]): Only deliver companies with at least this fit score (0-100).
+            exclude (Optional[List[str]]): Companies to leave out, as domains or URLs (up to 1000),
+                e.g. ones you already contacted.
+            roles (Optional[List[Union[CompanyRole, str]]]): The leaders to look for: ``ceo``,
+                ``founder``, ``cto``, ``cfo``, ``coo``, ``cmo``, ``president``, ``owner``,
+                ``managing_director``. The API default is ceo, founder, cto and cfo.
+            infer_emails (Optional[bool]): Guess leaders' emails from the company's address
+                pattern (the API default is true). Inferred emails have ``source`` ``inferred``
+                and a ``confidence``.
+            verify_emails (Optional[bool]): Check every email: syntax, mail server (MX) and, for
+                inferred ones, a web search (the API default is true). Turn off to finish
+                sooner without ``verification``.
+            filters (Optional[Union[CompanySearchFilters, Dict[str, Any]]]): ``countries``
+                (ISO codes or names, up to 20) and ``require`` (``email``, ``phone``,
+                ``linkedin``, ``leader``, ``leader_email``).
+            metadata (Optional[Dict[str, str]]): Your own labels for this task, e.g.
+                ``{"campaign": "q4"}``. At most 10 keys; keys are 1-40 characters of
+                a-z, 0-9, ``_``, ``.`` or ``-``; values are strings of at most 200 characters.
+                Returned as ``task.metadata`` and usable as a :meth:`list_company_tasks` filter.
+                Never used by the task itself.
+            idempotency_key (Optional[str]): Sent as the ``Idempotency-Key`` header. Reusing a key
+                returns the earlier task (HTTP 200) and is not charged again.
+
+        Returns:
+            CompanyTask: The created task.
+        """
+        request = CompanySearchRequest.model_validate(
+            {
+                "query": query,
+                "count": count,
+                "min_score": min_score,
+                "exclude": exclude,
+                "roles": roles,
+                "infer_emails": infer_emails,
+                "verify_emails": verify_emails,
+                "filters": filters,
+                "metadata": metadata,
+            }
+        )
+        return await self._create_company_task(
+            "search", request, idempotency_key, include_metadata
+        )
+
+    async def company_enrich(
+        self,
+        domains: List[str],
+        roles: Optional[List[str]] = None,
+        infer_emails: Optional[bool] = None,
+        verify_emails: Optional[bool] = None,
+        metadata: Optional[Dict[str, str]] = None,
+        *,
+        idempotency_key: Optional[str] = None,
+        include_metadata: bool = False,
+    ) -> Union[CompanyTask, DesearchResponse[CompanyTask]]:
+        """
+        Start a Company Enrich: the same public contact data for companies you already know, by domain.
+
+        The API reduces each domain or URL to its host without ``www.``,
+        lowercases and deduplicates them; the task's ``count`` is the number
+        left. You get one company per domain, with the same fields as
+        :meth:`company_search` but no fit score (``score`` is ``None``). A
+        company is published once its homepage has been read and the later
+        stages fill it in.
+
+        Billing: one company is reserved per domain sent, at the route price.
+        When the task ends you pay only for the companies it delivered, with a
+        minimum of 1; the rest of the reservation, including duplicate
+        domains, is returned. A task that delivers none is free. See
+        https://desearch.ai/pricing.
+
+        Args:
+            domains (List[str]): 1-200 company domains or URLs, e.g. ``acme.com`` or
+                ``https://www.acme.com/about``.
+            roles (Optional[List[Union[CompanyRole, str]]]): The leaders to look for, as in
+                :meth:`company_search`.
+            infer_emails (Optional[bool]): Guess leaders' emails from the company's address
+                pattern (the API default is true).
+            verify_emails (Optional[bool]): Check every email (the API default is true).
+            metadata (Optional[Dict[str, str]]): Your own labels for this task, as in
+                :meth:`company_search`.
+            idempotency_key (Optional[str]): Sent as the ``Idempotency-Key`` header. Reusing a key
+                returns the earlier task (HTTP 200) and is not charged again.
+
+        Returns:
+            CompanyTask: The created task.
+        """
+        request = CompanyEnrichRequest.model_validate(
+            {
+                "domains": domains,
+                "roles": roles,
+                "infer_emails": infer_emails,
+                "verify_emails": verify_emails,
+                "metadata": metadata,
+            }
+        )
+        return await self._create_company_task(
+            "enrich", request, idempotency_key, include_metadata
+        )
+
+    async def list_company_tasks(
+        self,
+        type: Optional[Union[CompanyTaskType, str]] = None,
+        status: Optional[
+            Union[PeopleTaskStatus, str, List[Union[PeopleTaskStatus, str]]]
+        ] = None,
+        limit: Optional[int] = None,
+        cursor: Optional[str] = None,
+        metadata: Optional[Dict[str, str]] = None,
+        *,
+        include_metadata: bool = False,
+    ) -> Union[CompanyTaskList, DesearchResponse[CompanyTaskList]]:
+        """
+        List your company's Company Search and Company Enrich tasks, newest first. Free.
+
+        People Search tasks are not listed here.
+
+        Args:
+            type (Optional[Union[CompanyTaskType, str]]): ``search`` or ``enrich``.
+            status (Optional[Union[PeopleTaskStatus, str, List]]): One status, a list, or a
+                comma-separated string (e.g. ``"running,paused"``).
+            limit (Optional[int]): Page size (1-100; the API default is 20).
+            cursor (Optional[str]): ``next_cursor`` from the previous page.
+            metadata (Optional[Dict[str, str]]): Only tasks whose ``metadata`` has all of these
+                key/value pairs (exact match, at most 3). Each pair is sent as a
+                ``metadata.<key>=<value>`` query parameter. Keep the same filter when you page
+                with ``cursor``.
+
+        Returns:
+            CompanyTaskList: Tasks and the cursor for the next page (``None`` on the last page).
+        """
+        url = f"{self.base_url}/desearch/companies/tasks"
+        if isinstance(status, (list, tuple)):
+            status = ",".join(str(_enum_value(s)) for s in status)
+        params = {
+            k: v
+            for k, v in {
+                "type": _enum_value(type),
+                "status": _enum_value(status),
+                "limit": limit,
+                "cursor": cursor,
+            }.items()
+            if v is not None
+        }
+        for key, value in (metadata or {}).items():
+            params[f"metadata.{key}"] = str(value)
+        result = await self._handle_request(
+            "GET", url, params=params, include_metadata=include_metadata
+        )
+        data, cost_metadata = self._split_response(result, include_metadata)
+        return self._with_metadata(
+            CompanyTaskList(**data), cost_metadata, include_metadata
+        )
+
+    async def get_company_task(
+        self,
+        task_id: Union[str, UUID],
+        *,
+        include_metadata: bool = False,
+    ) -> Union[CompanyTask, DesearchResponse[CompanyTask]]:
+        """
+        Get the status, progress and cost of one Company Search or Company Enrich task. Free.
+
+        ``stage`` is ``enriching`` once every company is published and only
+        later stages of some of them are left. A People Search task ID is a
+        404 here.
+
+        Args:
+            task_id (Union[str, UUID]): The task ID returned when the task was created.
+
+        Returns:
+            CompanyTask: The task.
+        """
+        url = f"{self.base_url}{self._company_task_path(task_id)}"
+        result = await self._handle_request(
+            "GET", url, include_metadata=include_metadata
+        )
+        data, metadata = self._split_response(result, include_metadata)
+        return self._with_metadata(CompanyTask(**data), metadata, include_metadata)
+
+    async def get_company_results(
+        self,
+        task_id: Union[str, UUID],
+        cursor: Optional[str] = None,
+        limit: Optional[int] = None,
+        *,
+        include_metadata: bool = False,
+    ) -> Union[CompanyResultsPage, DesearchResponse[CompanyResultsPage]]:
+        """
+        Read one page of companies delivered so far, in the order they were found. Free.
+
+        Companies arrive while the task is still running and are filled in
+        place by the later stages (``enrichment.status`` ``partial``, then
+        ``complete``). Keep ``next_cursor`` and call again to get only new
+        companies, or call without ``cursor`` to read every company in its
+        latest version. The API returns 410 once the results have expired (30
+        days after the task ended).
+
+        Args:
+            task_id (Union[str, UUID]): The task ID.
+            cursor (Optional[str]): ``next_cursor`` from the previous page.
+            limit (Optional[int]): Page size (1-500; the API default is 100).
+
+        Returns:
+            CompanyResultsPage: Companies, the next cursor and whether more are available now.
+        """
+        url = f"{self.base_url}{self._company_task_path(task_id, '/results')}"
+        params = {
+            k: v
+            for k, v in {
+                "cursor": cursor,
+                "limit": limit,
+            }.items()
+            if v is not None
+        }
+        result = await self._handle_request(
+            "GET", url, params=params, include_metadata=include_metadata
+        )
+        data, metadata = self._split_response(result, include_metadata)
+        return self._with_metadata(
+            CompanyResultsPage(**data), metadata, include_metadata
+        )
+
+    @staticmethod
+    def _company_conflict_error(exc: DesearchAPIError) -> CompanyTaskConflictError:
+        detail = ""
+        task: Optional[CompanyTask] = None
+        try:
+            body = json.loads(exc.body) if exc.body else None
+        except ValueError:
+            body = None
+        if isinstance(body, dict):
+            detail = str(body.get("detail") or "")
+            raw_task = body.get("task")
+            if isinstance(raw_task, dict):
+                try:
+                    task = CompanyTask(**raw_task)
+                except ValidationError:
+                    task = None
+        return CompanyTaskConflictError(
+            status=exc.status,
+            message=exc.message,
+            body=exc.body,
+            detail=detail,
+            task=task,
+        )
+
+    async def _control_company_task(
+        self,
+        task_id: Union[str, UUID],
+        action: str,
+        include_metadata: bool,
+    ) -> Union[CompanyTask, DesearchResponse[CompanyTask]]:
+        url = f"{self.base_url}{self._company_task_path(task_id, '/' + action)}"
+        result: Any = None
+        conflict: Optional[CompanyTaskConflictError] = None
+        try:
+            result = await self._handle_request(
+                "POST", url, include_metadata=include_metadata
+            )
+        except DesearchAPIError as exc:
+            if exc.status != 409:
+                raise
+            conflict = self._company_conflict_error(exc)
+        if conflict is not None:
+            _raise_without_chain(conflict)
+        data, metadata = self._split_response(result, include_metadata)
+        return self._with_metadata(CompanyTask(**data), metadata, include_metadata)
+
+    async def pause_company_task(
+        self,
+        task_id: Union[str, UUID],
+        *,
+        include_metadata: bool = False,
+    ) -> Union[CompanyTask, DesearchResponse[CompanyTask]]:
+        """
+        Pause a Company Search or Company Enrich task. Free.
+
+        A queued task pauses at once; a running one finishes its current batch
+        first (status ``pausing``, then ``paused``). Companies delivered so far
+        stay available. A task paused for more than 7 days is cancelled.
+
+        Args:
+            task_id (Union[str, UUID]): The task ID.
+
+        Returns:
+            CompanyTask: The task after the request.
+
+        Raises:
+            CompanyTaskConflictError: HTTP 409, the task cannot be paused. ``task`` holds its state.
+        """
+        return await self._control_company_task(task_id, "pause", include_metadata)
+
+    async def resume_company_task(
+        self,
+        task_id: Union[str, UUID],
+        *,
+        include_metadata: bool = False,
+    ) -> Union[CompanyTask, DesearchResponse[CompanyTask]]:
+        """
+        Resume a paused Company Search or Company Enrich task from where it stopped. Not charged again.
+
+        Args:
+            task_id (Union[str, UUID]): The task ID.
+
+        Returns:
+            CompanyTask: The task after the request.
+
+        Raises:
+            CompanyTaskConflictError: HTTP 409, the task is not paused. ``task`` holds its state.
+        """
+        return await self._control_company_task(task_id, "resume", include_metadata)
+
+    async def cancel_company_task(
+        self,
+        task_id: Union[str, UUID],
+        *,
+        include_metadata: bool = False,
+    ) -> Union[CompanyTask, DesearchResponse[CompanyTask]]:
+        """
+        Cancel a Company Search or Company Enrich task. Free.
+
+        You pay only for the companies it delivered (a task cancelled before
+        it starts costs nothing); the rest of the reservation is returned.
+        Companies delivered so far stay available for 30 days.
+
+        Args:
+            task_id (Union[str, UUID]): The task ID.
+
+        Returns:
+            CompanyTask: The task after the request.
+
+        Raises:
+            CompanyTaskConflictError: HTTP 409, the task has already ended. ``task`` holds its state.
+        """
+        return await self._control_company_task(task_id, "cancel", include_metadata)
+
+    async def export_company_results(
+        self,
+        task_id: Union[str, UUID],
+        format: Union[PeopleExportFormat, str] = "csv",
+        *,
+        include_metadata: bool = False,
+    ) -> Union[str, DesearchResponse[str]]:
+        """
+        Download every company a task delivered so far as CSV or JSON Lines. Free.
+
+        CSV has one row per company: its domain, name, fit score, location,
+        primary email, emails, phones and social profiles, then the CEO (or
+        managing director), founder, CTO and CFO with their title, email,
+        email status and LinkedIn profile, and ``fully_verified``,
+        ``unverified_criteria`` and ``enrichment_status``. JSON Lines has one
+        company per line with every field. Fields the later stages have not
+        filled in yet are empty.
+
+        Args:
+            task_id (Union[str, UUID]): The task ID.
+            format (Union[PeopleExportFormat, str]): ``csv`` (default) or ``jsonl``.
+
+        Returns:
+            str: The file contents.
+        """
+        return await self._handle_text_request(
+            self._company_task_path(task_id, "/export"),
+            params={"format": _enum_value(format)},
+            include_metadata=include_metadata,
+        )
+
+    async def wait_for_company_task(
+        self,
+        task_id: Union[str, UUID],
+        *,
+        poll_interval: float = 5.0,
+        timeout: Optional[float] = 600.0,
+    ) -> CompanyTask:
+        """
+        Poll a Company Search or Company Enrich task until it ends (completed, partial, failed, cancelled or expired).
+
+        Polling is free. While companies it already published are still being
+        filled in, the task is running with ``stage`` ``enriching``. A paused
+        task stays paused until it is resumed (the API cancels it after 7
+        days), so waiting on one runs until ``timeout``.
+
+        Args:
+            task_id (Union[str, UUID]): The task ID.
+            poll_interval (float): Seconds between polls. Defaults to 5.
+            timeout (Optional[float]): Seconds to wait before raising
+                ``CompanyTaskTimeoutError``. ``None`` waits without a limit. Defaults to 600.
+
+        Returns:
+            CompanyTask: The ended task.
+
+        Raises:
+            CompanyTaskTimeoutError: The task had not ended in time. It keeps running.
+        """
+        loop = asyncio.get_running_loop()
+        started = loop.time()
+        while True:
+            task = cast(CompanyTask, await self.get_company_task(task_id))
+            if task.is_finished:
+                return task
+            delay = poll_interval
+            if timeout is not None:
+                remaining = timeout - (loop.time() - started)
+                if remaining <= 0:
+                    raise CompanyTaskTimeoutError(task, timeout)
+                delay = min(poll_interval, remaining)
+            await asyncio.sleep(delay)
+
+    async def iter_company_results(
+        self,
+        task_id: Union[str, UUID],
+        *,
+        cursor: Optional[str] = None,
+        page_size: int = 100,
+    ) -> AsyncIterator[Company]:
+        """
+        Yield every company a task has delivered so far, following ``next_cursor`` page by page. Free.
+
+        Stops when the API reports no more companies available now. Each
+        company is yielded as it was when its page was read: while the task
+        runs, later stages keep filling in companies already yielded. Call
+        :meth:`wait_for_company_task` first to read a finished task in full, or
+        iterate again without ``cursor`` to get the latest version of each.
+
+        Args:
+            task_id (Union[str, UUID]): The task ID.
+            cursor (Optional[str]): Start after this cursor instead of the beginning.
+            page_size (int): Companies per request (1-500). Defaults to 100.
+
+        Yields:
+            Company: Each delivered company, in the order found.
+        """
+        while True:
+            page = cast(
+                CompanyResultsPage,
+                await self.get_company_results(
+                    task_id, cursor=cursor, limit=page_size
+                ),
+            )
+            for company in page.results:
+                yield company
             cursor = page.next_cursor
             if not page.has_more or not page.results:
                 return

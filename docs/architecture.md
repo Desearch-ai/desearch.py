@@ -4,7 +4,7 @@ This document explains how the SDK is structured today, based on the checked-in 
 
 ## Overview
 
-`desearch-py` is a thin async wrapper over the Desearch HTTP API, including the task-based People Search API. The codebase is intentionally small and split across three public-facing package files:
+`desearch-py` is a thin async wrapper over the Desearch HTTP API, including the task-based People Search and Company Search APIs. The codebase is intentionally small and split across three public-facing package files:
 
 - `desearch_py/api.py` contains the async client and every endpoint method.
 - `desearch_py/models.py` contains enums plus permissive `pydantic` response models.
@@ -80,7 +80,7 @@ Why that appears to exist in the current code:
 - `x_posts_by_urls()` needs repeated `urls` query params expressed as a tuple list
 - the extraction endpoints return `response.text()` instead of JSON
 
-People Search exports (`export_people_results`, `export_people_profiles`) reuse `_handle_text_request()` because the API returns a CSV or JSON Lines file, not JSON.
+People Search exports (`export_people_results`, `export_people_profiles`) and `export_company_results` reuse `_handle_text_request()` because the API returns a CSV or JSON Lines file, not JSON.
 
 Tradeoff:
 
@@ -126,12 +126,22 @@ Result filters are merged from a `PeopleResultFilters` object (or dict) and keyw
 
 A 409 from pause, resume, or cancel is raised as `PeopleTaskConflictError`, a `DesearchAPIError` subclass that also carries the task parsed from the (already redacted) response body. Like other HTTP errors it is raised with no `__cause__` or `__context__`.
 
+### 6. Company Search reuses the task pattern
+
+Company Search and Company Enrich run on the People Search engine, so the SDK mirrors the People Search methods under `/desearch/companies`: `company_search()` and `company_enrich()` POST a body built from `CompanySearchRequest` or `CompanyEnrichRequest` and return a `CompanyTask`, with the same `idempotency_key`, `metadata`, and `include_metadata` handling. `list_company_tasks()` sends `type` (`search` or `enrich`) where `list_people_tasks()` sends `platform`. The routes only see company tasks: a People Search task ID is a 404 there.
+
+The company models are separate from the People Search ones because the result shape differs (`Company` with emails, phones, socials, leaders, and per-stage `enrichment` instead of `Person`). Where the API reuses a People Search model, the SDK does too: `PeopleTaskStatus` and `PEOPLE_TASK_ENDED_STATUSES` for `CompanyTask.status` and `is_finished`, `PeopleTaskLinks`, `PeopleTaskCreatedBy`, `PeopleExportFormat`, and `PeopleCriterionCheck` in `CompanyScore.criteria_checks`. `CompanyScore.unverified_criteria` and `PeopleScore.unverified_criteria` share one rule.
+
+Results fill in stage by stage after a company is published, so every field a later stage writes is optional (lists default to `[]`, objects to `None`), and every model keeps unknown fields. Value sets the API may extend (email types, check results, stage states) are typed as `str`, with enums only for the values callers pass or branch on.
+
+`wait_for_company_task()` and `iter_company_results()` work like their People Search counterparts and raise `CompanyTaskTimeoutError`; a 409 from pause, resume, or cancel raises `CompanyTaskConflictError` with the task as a `CompanyTask`. Both errors are separate classes from the People Search ones, so catching `PeopleTaskConflictError` does not catch a company conflict.
+
 ## Public API boundary
 
 `desearch_py/__init__.py` is the package boundary for consumers. It re-exports:
 
 - `Desearch`
-- `DesearchAPIError`, plus the People Search errors `PeopleTaskConflictError` and `PeopleTaskTimeoutError`
+- `DesearchAPIError`, plus the People Search errors `PeopleTaskConflictError` and `PeopleTaskTimeoutError` and the Company Search errors `CompanyTaskConflictError` and `CompanyTaskTimeoutError`
 - enums such as `Tool`, `WebTool`, `DateFilter`, `ResultType`, `Sort`
 - response models
 - response metadata wrapper models
@@ -147,9 +157,9 @@ Practical effect:
 
 The repo keeps both Poetry and setuptools metadata:
 
-- `desearch_py.__version__` is `1.7.0` and is the single source of truth for the version
+- `desearch_py.__version__` is `1.10.0` and is the single source of truth for the version
 - `setup.py` packages the import module `desearch_py` and reads its version from `desearch_py/__init__.py` with a regex (it does not import the package)
-- `pyproject.toml` names the package `desearch-py` and repeats version `1.7.0`, because `poetry-core` cannot read a dynamic version; `tests/test_version_consistency.py` fails if it drifts
+- `pyproject.toml` names the package `desearch-py` and repeats version `1.10.0`, because `poetry-core` cannot read a dynamic version; `tests/test_version_consistency.py` fails if it drifts
 
 This dual-metadata setup supports multiple install flows, but it creates a maintenance obligation: version and dependency drift between the two files would be a release bug.
 
@@ -172,7 +182,7 @@ That means contributors should treat the checked source code and Markdown docs a
 The current implementation does **not** include:
 
 - built-in retries or backoff
-- automatic pagination helpers outside People Search results (`iter_people_results`)
+- automatic pagination helpers outside People Search and Company Search results (`iter_people_results`, `iter_company_results`)
 - streaming response handling
 - sync client support
 - lint infrastructure inside this repo
