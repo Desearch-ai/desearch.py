@@ -168,6 +168,15 @@ class ResponseMetadataTests(unittest.IsolatedAsyncioTestCase):
             {"url": "https://desearch.ai", "format": "html"},
         )
 
+    async def test_extract_requests_markdown(self):
+        client = self.make_client(FakeResponse(text_data="# Desearch"))
+
+        result = await client.extract(url="https://desearch.ai", format="markdown")
+
+        self.assertEqual(result, "# Desearch")
+        self.assertEqual(client.client.requests[0][2]["params"]["format"], "markdown")
+        self.assertNotIn("full_page", client.client.requests[0][2]["params"])
+
     async def test_extract_sends_full_page_only_when_set(self):
         client = self.make_client(
             FakeResponse(text_data="every section"),

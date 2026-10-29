@@ -5,10 +5,17 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-> Note: the version in this repository is 1.8.0, but the latest release
+> Note: the version in this repository is 1.9.0, but the latest release
 > published on PyPI is 1.2.1. Versions 1.3.0
 > through 1.6.2 were never published to PyPI and are not recorded individually
 > here.
+
+## [1.9.0] - unreleased (not yet published to PyPI)
+
+### Added
+
+- `extract(..., format="markdown")` returns the page as markdown (headings,
+  lists, tables and code). `full_page` applies to `format="text"` only.
 
 ## [1.8.0] - unreleased (not yet published to PyPI)
 

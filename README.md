@@ -2,7 +2,7 @@
 
 Official async Python SDK for the Desearch API.
 
-`desearch-py` is a thin `aiohttp` client for the Desearch public API. It wraps search, X, extraction, and People Search endpoints behind a single async client class and returns `pydantic` models for most successful responses. The package metadata currently reports **version 1.8.0** and requires **Python 3.10+**. See [CHANGELOG.md](CHANGELOG.md) for unreleased and breaking changes.
+`desearch-py` is a thin `aiohttp` client for the Desearch public API. It wraps search, X, extraction, and People Search endpoints behind a single async client class and returns `pydantic` models for most successful responses. The package metadata currently reports **version 1.9.0** and requires **Python 3.10+**. See [CHANGELOG.md](CHANGELOG.md) for unreleased and breaking changes.
 
 ## Package purpose
 
@@ -322,7 +322,13 @@ content = await client.extract(
 )
 ```
 
-`format="text"` returns the page's main content, which can leave out tables, notices and other sections. Pass `full_page=True` for all visible text of the page, one block per line:
+`format` is `"text"` (default), `"markdown"` or `"html"`. `"markdown"` keeps headings, lists, tables and code: the main content of articles and docs, and the whole page without its navigation otherwise.
+
+```python
+markdown = await client.extract(url="https://en.wikipedia.org/wiki/Artificial_intelligence", format="markdown")
+```
+
+`format="text"` returns the page's main content, which can leave out tables, notices and other sections. Pass `full_page=True` (text only) for all visible text of the page, one block per line:
 
 ```python
 content = await client.extract(url="https://peles.ro/en/program-si-taxe/", full_page=True)
