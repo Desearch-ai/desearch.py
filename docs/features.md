@@ -2,7 +2,7 @@
 
 > Status key: ✅ working · ⚠️ degraded · ❌ broken · 🚧 in progress
 
-This inventory is derived from the current source in `desearch_py/api.py`, `desearch_py/models.py`, `pyproject.toml`, and `setup.py`. Current package version: **1.7.0**.
+This inventory is derived from the current source in `desearch_py/api.py`, `desearch_py/models.py`, `pyproject.toml`, and `setup.py`. Current package version: **1.10.0**.
 
 ## Overview
 
@@ -116,12 +116,40 @@ Searches run as background tasks. Only the four search methods are billed (per p
 | `location` | text | ✅ |
 | `verified` | `true` / `false` | ✅ |
 
+## Company Search features
+
+Company Search and Company Enrich run as background tasks on the People Search engine. Only `company_search` and `company_enrich` are billed (per company delivered); every task, results, and export call is free. A People Search task ID is a 404 on these routes.
+
+| Method | Endpoint | Status | Notes |
+|---|---|---|---|
+| `company_search` | `POST /desearch/companies/search` | ✅ | `query`, `count`, `min_score`, `exclude`, `roles` (`CompanyRole`), `infer_emails`, `verify_emails`, typed `CompanySearchFilters` (`countries`, `require`) or a dict, `metadata`. Optional `Idempotency-Key`. Returns `CompanyTask`. |
+| `company_enrich` | `POST /desearch/companies/enrich` | ✅ | `domains` (1-200 domains or URLs), `roles`, `infer_emails`, `verify_emails`, `metadata`. Optional `Idempotency-Key`. Returns `CompanyTask`. |
+| `list_company_tasks` | `GET /desearch/companies/tasks` | ✅ | `type` (`search` or `enrich`), `status` (list or comma string), `limit`, `cursor`, and a `metadata` filter sent as `metadata.<key>=<value>` params. |
+| `get_company_task` | `GET /desearch/companies/tasks/{task_id}` | ✅ | Returns `CompanyTask`, with `stage` (`enriching` while published companies are filled in), `progress`, `completion_reason` (`CompanyCompletionReason`), `coverage_limited`, and `warnings` (`CompanyTaskWarning`). |
+| `get_company_results` | `GET /desearch/companies/tasks/{task_id}/results` | ✅ | One page of `Company`; pass `next_cursor` back as `cursor` for new companies only, or read without it for the latest version of each. Every field a later stage fills in is optional. |
+| `pause_company_task` / `resume_company_task` / `cancel_company_task` | `POST /desearch/companies/tasks/{task_id}/{pause,resume,cancel}` | ✅ | HTTP 409 raises `CompanyTaskConflictError` with the task's current state. |
+| `export_company_results` | `GET /desearch/companies/tasks/{task_id}/export` | ✅ | CSV (one row per company) or JSON Lines text. |
+| `wait_for_company_task` | polls `GET /desearch/companies/tasks/{task_id}` | ✅ | Defaults: every 5 s, 600 s timeout, then `CompanyTaskTimeoutError`. |
+| `iter_company_results` | pages `GET /desearch/companies/tasks/{task_id}/results` | ✅ | Async iterator of `Company`; stops when no more companies are available now. |
+
+### Company result coverage
+
+| Field | Model | Status |
+|---|---|---|
+| `emails`, `primary_email`, `people[].emails` | `CompanyEmail`, with `verification` (`CompanyEmailVerification`, `CompanyEmailChecks`) | ✅ |
+| `phones`, `socials`, `pages`, `location` | `CompanyPhone`, `CompanySocial`, `CompanyPage`, `CompanyLocation` | ✅ |
+| `people` | `CompanyPerson`, with `evidence` (`CompanyPersonEvidence`) | ✅ |
+| `primary_contact`, `contact_coverage` | `CompanyPrimaryContact`, `CompanyContactCoverage` | ✅ |
+| `enrichment` | `CompanyEnrichment`, `CompanyEnrichmentStages`, `CompanyEnrichmentError` | ✅ |
+| `score` (`None` for Company Enrich) | `CompanyScore`, with `criteria_checks` (`PeopleCriterionCheck`) and `unverified_criteria` | ✅ |
+| `found_by` | `CompanyFoundBy` | ✅ |
+
 ## Models and exports
 
 | Surface | Status | Notes |
 |---|---|---|
-| Enums exported from package root | ✅ | `Tool`, `WebTool`, `DateFilter`, `ResultType`, `Sort`, `PeoplePlatform`, `PeopleTaskStatus`, `PeopleProfileSort`, `PeopleExportFormat`, `PeopleChannel`, `PeopleCompletionReason`, `PeopleCriterionVerdict`, `PeopleEnrichment`, `PeopleEnrichmentError` are all re-exported. |
-| Response models exported from package root | ✅ | Core search, web, X, People Search, and error models are re-exported. |
+| Enums exported from package root | ✅ | `Tool`, `WebTool`, `DateFilter`, `ResultType`, `Sort`, `PeoplePlatform`, `PeopleTaskStatus`, `PeopleProfileSort`, `PeopleExportFormat`, `PeopleChannel`, `PeopleCompletionReason`, `PeopleCriterionVerdict`, `PeopleEnrichment`, `PeopleEnrichmentError`, `CompanyTaskType`, `CompanyRole`, `CompanyRequirement`, `CompanyCompletionReason`, `CompanyEmailStatus` are all re-exported. |
+| Response models exported from package root | ✅ | Core search, web, X, People Search, Company Search, and error models are re-exported. |
 | Forward-compatible parsing | ✅ | Models use `ConfigDict(extra="allow")` to tolerate extra API fields. |
 | Strict schema enforcement | ❌ | The SDK intentionally does not reject unknown fields. |
 | Type marker file | ✅ | `desearch_py/py.typed` is included in package data. |
@@ -130,9 +158,9 @@ Searches run as background tasks. Only the four search methods are billed (per p
 
 | Surface | Status | Notes |
 |---|---|---|
-| Poetry metadata in `pyproject.toml` | ✅ | Declares package name `desearch-py`, version `1.7.0`, and runtime deps. |
+| Poetry metadata in `pyproject.toml` | ✅ | Declares package name `desearch-py`, version `1.10.0`, and runtime deps. |
 | setuptools metadata in `setup.py` | ✅ | Declares import package `desearch_py` and package data; reads the version from `desearch_py.__version__`. |
-| Version parity between Poetry and setuptools | ✅ | `desearch_py.__version__` (`1.7.0`) is the source of truth; `tests/test_version_consistency.py` checks `pyproject.toml` and `setup.py` match it. |
+| Version parity between Poetry and setuptools | ✅ | `desearch_py.__version__` (`1.10.0`) is the source of truth; `tests/test_version_consistency.py` checks `pyproject.toml` and `setup.py` match it. |
 | Sphinx source files | ✅ | `docs/conf.py`, `docs/index.rst`, `docs/Makefile`, and `docs/make.bat` are present. |
 | Sphinx branding correctness | ❌ | `docs/conf.py` and generated `docs/_build/` still carry legacy `datura-py` / `Leva` metadata. |
 
@@ -145,5 +173,6 @@ Searches run as background tasks. Only the four search methods are billed (per p
 | X / Twitter | 3 | 6 | 0 | 0 |
 | Web | 1 | 1 | 0 | 0 |
 | People Search | 13 | 0 | 0 | 0 |
+| Company Search | 9 | 0 | 0 | 0 |
 | Models / exports | 4 | 0 | 1 | 0 |
 | Packaging / docs tooling | 4 | 0 | 1 | 0 |

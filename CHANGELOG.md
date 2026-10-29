@@ -5,10 +5,43 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-> Note: the version in this repository is 1.9.0, but the latest release
-> published on PyPI is 1.2.1. Versions 1.3.0
-> through 1.6.2 were never published to PyPI and are not recorded individually
-> here.
+> Note: the version in this repository is 1.10.0, but the latest release
+> published on PyPI is 1.2.1. Versions 1.3.0 through 1.6.2 were never published
+> to PyPI and are not recorded individually here.
+
+## [1.10.0] - unreleased (not yet published to PyPI)
+
+### Added
+
+- **Company Search and Company Enrich.** Find companies on the web from a
+  description (`company_search`), or start from up to 200 domains
+  (`company_enrich`), and get each company's public emails, phones, social
+  profiles and leaders (CEO, founders, CTO, CFO by default) with their LinkedIn
+  profiles and emails. Both run as background tasks on the People Search
+  engine, with an optional `idempotency_key`, `metadata` labels and
+  `include_metadata=True`, and are billed per company delivered.
+- Task methods: `list_company_tasks` (`type` `search` or `enrich`, `status`,
+  `limit`, `cursor`, `metadata` filter), `get_company_task`,
+  `get_company_results`, `pause_company_task`, `resume_company_task`,
+  `cancel_company_task`, and `export_company_results` (CSV or JSON Lines).
+- Helpers: `wait_for_company_task` (raises `CompanyTaskTimeoutError`) and
+  `iter_company_results` (follows `next_cursor`).
+- A 409 from pause, resume or cancel raises `CompanyTaskConflictError`, a
+  `DesearchAPIError` subclass carrying the task's current state.
+- Request models `CompanySearchRequest`, `CompanySearchFilters` and
+  `CompanyEnrichRequest`; task models `CompanyTask`, `CompanyTaskList` and
+  `CompanyTaskWarning`; result models `CompanyResultsPage`, `Company`,
+  `CompanyEmail`, `CompanyEmailVerification`, `CompanyEmailChecks`,
+  `CompanyPhone`, `CompanySocial`, `CompanyPage`, `CompanyLocation`,
+  `CompanyPerson`, `CompanyPersonEvidence`, `CompanyPrimaryContact`,
+  `CompanyContactCoverage`, `CompanyEnrichment`, `CompanyEnrichmentStages`,
+  `CompanyEnrichmentError`, `CompanyScore` (with `unverified_criteria`) and
+  `CompanyFoundBy`. Companies fill in stage by stage after they are published
+  (`enrichment.status` `partial`, then `complete`), so every field a later
+  stage writes is optional. `score` is `None` for Company Enrich.
+- Enums `CompanyTaskType`, `CompanyRole`, `CompanyRequirement`,
+  `CompanyCompletionReason` (adds `all_domains_processed`) and
+  `CompanyEmailStatus`.
 
 ## [1.9.0] - unreleased (not yet published to PyPI)
 

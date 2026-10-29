@@ -74,7 +74,7 @@ Timeout configuration is not exposed on the client or individual methods.
 
 **Impact**
 
-Long-running extraction or search calls cannot be tuned per environment. Large People Search exports (`export_people_profiles` returns up to 10,000 people) must also finish within 120 seconds. `wait_for_people_task()` is not affected: each poll is its own short request.
+Long-running extraction or search calls cannot be tuned per environment. Large People Search exports (`export_people_profiles` returns up to 10,000 people) and `export_company_results()` must also finish within 120 seconds. `wait_for_people_task()` and `wait_for_company_task()` are not affected: each poll is its own short request.
 
 **Workaround**
 
@@ -84,7 +84,7 @@ Keep requests small where possible, or enforce higher-level timeout handling aro
 
 **What happens**
 
-Cursor-aware endpoints like `x_post_retweeters()`, `x_user_posts()`, `list_people_tasks()`, and `list_people_profiles()` return typed responses with cursor fields, but the SDK does not auto-follow them. People Search task results are the exception: `iter_people_results()` follows `next_cursor` for you.
+Cursor-aware endpoints like `x_post_retweeters()`, `x_user_posts()`, `list_people_tasks()`, `list_company_tasks()`, and `list_people_profiles()` return typed responses with cursor fields, but the SDK does not auto-follow them. Task results are the exception: `iter_people_results()` and `iter_company_results()` follow `next_cursor` for you.
 
 **Why unresolved**
 
@@ -134,7 +134,25 @@ Success-path parsing is still separate. HTTP error handling is shared, so an API
 
 When changing request behavior, audit those two methods explicitly.
 
-## 8. Sphinx docs scaffolding still has legacy branding
+## 8. Company results read during a task can be out of date
+
+**What happens**
+
+A Company Search or Company Enrich company is published after its first stages and filled in later on the server (`enrichment.status` `partial`, then `complete`). `get_company_results()` and `iter_company_results()` return each company as it was when its page was read, and the SDK does not refresh it. Following `next_cursor` returns only companies delivered after that page, never a newer version of one already read.
+
+**Why unresolved**
+
+The API fills results in place and has no change feed; the SDK keeps a thin, stateless wrapper over the results route.
+
+**Impact**
+
+Companies read while the task runs (including while `stage` is `enriching`) can lack leaders, inferred emails, or email `verification` that the task adds later.
+
+**Workaround**
+
+Read results after `wait_for_company_task()` returns, or read again without `cursor` to get the latest version of every company.
+
+## 9. Sphinx docs scaffolding still has legacy branding
 
 **What happens**
 
@@ -160,7 +178,8 @@ Use `README.md` and the Markdown files in `docs/` as the current documentation s
 | Mixed typed and raw dict returns | Medium | Add runtime type checks |
 | No retry/backoff | Medium | Retry in caller |
 | Fixed 120 second timeout | Low | Control timeout behavior at the caller layer |
-| No pagination helpers (except People Search results) | Low | Manually reuse cursor values |
+| No pagination helpers (except People Search and Company Search results) | Low | Manually reuse cursor values |
 | Extraction methods return raw text | Low | Parse returned content yourself |
 | Specialized request paths | Low | Audit special-case methods during transport changes |
+| Company results read during a task can be out of date | Low | Read after `wait_for_company_task()`, or again without `cursor` |
 | Legacy Sphinx branding | Info | Ignore `docs/_build/` as a source of truth |
