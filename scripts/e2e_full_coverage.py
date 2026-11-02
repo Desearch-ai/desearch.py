@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Live smoke test for the methods added in desearch-py 1.8.0.
+"""Live smoke test for the TikTok, Instagram, Facebook, Search API and network stats methods.
 
 Calls the real Desearch API once per new method with the smallest counts,
 follows one more page wherever a social list method returns a cursor, and

@@ -1,7 +1,7 @@
 Search API, social media, and network stats
 ===========================================
 
-Methods added in desearch-py 1.8.0. Every method is a coroutine on the async
+Social, Search API and network stats methods (desearch-py 1.11.0). Every method is a coroutine on the async
 ``Desearch`` client and takes the keyword-only ``include_metadata`` argument.
 With ``include_metadata=True`` it returns a ``DesearchResponse`` whose ``data``
 is the usual return value and whose ``metadata`` (``DesearchCostMetadata``)

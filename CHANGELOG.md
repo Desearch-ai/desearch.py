@@ -6,13 +6,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 > Note: the version in this repository is 1.11.0, but the latest release
-> published on PyPI is 1.2.1. Versions 1.3.0 through 1.7.0 were never published
-> to PyPI, and 1.3.0 through 1.6.2 are not recorded individually here.
+> published on PyPI is 1.2.1. Versions 1.3.0 through 1.6.2 were never published
+> to PyPI and are not recorded individually here.
 
 ## [1.11.0] - unreleased (not yet published to PyPI)
 
-Stacked on the 1.8.0 changes below (desearch.py#35). `main` already has 1.9.0
-and 1.10.0, so #35 is rebased first and both ship together as 1.11.0.
+Full API coverage (TikTok, Instagram, Facebook, Search API, network stats;
+desearch.py#35) and YouTube, Reddit and Threads (desearch.py#38) ship together
+in this release.
 
 ### Added
 
@@ -36,11 +37,6 @@ and 1.10.0, so #35 is rebased first and both ship together as 1.11.0.
 - `scripts/e2e_youtube_reddit_threads.py`, a live smoke test of the new
   methods with billing-header checks (`--base-url`, `--key-env`; not run by
   CI).
-
-## [1.8.0] - unreleased (not yet published to PyPI)
-
-### Added
-
 - **Search API**: `search_api()` for `POST /search`, ranked pages each with
   the passage that best matches the query. Returns `SearchApiResponse`
   (`SearchApiResult` items); `mode` takes `SearchApiMode` or a string. It is
@@ -74,6 +70,54 @@ and 1.10.0, so #35 is rebased first and both ship together as 1.11.0.
   included, so an Instagram post URL works as `instagram_media(id=...)`.
 - `scripts/e2e_full_coverage.py`, a live smoke test of the new methods (needs
   `DESEARCH_API_KEY`; not run by CI).
+
+## [1.10.0] - unreleased (not yet published to PyPI)
+
+### Added
+
+- **Company Search and Company Enrich.** Find companies on the web from a
+  description (`company_search`), or start from up to 200 domains
+  (`company_enrich`), and get each company's public emails, phones, social
+  profiles and leaders (CEO, founders, CTO, CFO by default) with their LinkedIn
+  profiles and emails. Both run as background tasks on the People Search
+  engine, with an optional `idempotency_key`, `metadata` labels and
+  `include_metadata=True`, and are billed per company delivered.
+- Task methods: `list_company_tasks` (`type` `search` or `enrich`, `status`,
+  `limit`, `cursor`, `metadata` filter), `get_company_task`,
+  `get_company_results`, `pause_company_task`, `resume_company_task`,
+  `cancel_company_task`, and `export_company_results` (CSV or JSON Lines).
+- Helpers: `wait_for_company_task` (raises `CompanyTaskTimeoutError`) and
+  `iter_company_results` (follows `next_cursor`).
+- A 409 from pause, resume or cancel raises `CompanyTaskConflictError`, a
+  `DesearchAPIError` subclass carrying the task's current state.
+- Request models `CompanySearchRequest`, `CompanySearchFilters` and
+  `CompanyEnrichRequest`; task models `CompanyTask`, `CompanyTaskList` and
+  `CompanyTaskWarning`; result models `CompanyResultsPage`, `Company`,
+  `CompanyEmail`, `CompanyEmailVerification`, `CompanyEmailChecks`,
+  `CompanyPhone`, `CompanySocial`, `CompanyPage`, `CompanyLocation`,
+  `CompanyPerson`, `CompanyPersonEvidence`, `CompanyPrimaryContact`,
+  `CompanyContactCoverage`, `CompanyEnrichment`, `CompanyEnrichmentStages`,
+  `CompanyEnrichmentError`, `CompanyScore` (with `unverified_criteria`) and
+  `CompanyFoundBy`. Companies fill in stage by stage after they are published
+  (`enrichment.status` `partial`, then `complete`), so every field a later
+  stage writes is optional. `score` is `None` for Company Enrich.
+- Enums `CompanyTaskType`, `CompanyRole`, `CompanyRequirement`,
+  `CompanyCompletionReason` (adds `all_domains_processed`) and
+  `CompanyEmailStatus`.
+
+## [1.9.0] - unreleased (not yet published to PyPI)
+
+### Added
+
+- `extract(..., format="markdown")` returns the page as markdown (headings,
+  lists, tables and code). `full_page` applies to `format="text"` only.
+
+## [1.8.0] - unreleased (not yet published to PyPI)
+
+### Added
+
+- `extract(..., full_page=True)` returns all visible text of the page instead
+  of its main content (with `format="text"`).
 
 ## [1.7.0] - unreleased (not yet published to PyPI)
 
