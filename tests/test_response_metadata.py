@@ -168,6 +168,20 @@ class ResponseMetadataTests(unittest.IsolatedAsyncioTestCase):
             {"url": "https://desearch.ai", "format": "html"},
         )
 
+    async def test_next_cursor_header_is_parsed_into_metadata(self):
+        cursor = "eyJ2IjoxfQ.c2ln-_=="
+        client = self.make_client(
+            FakeResponse(json_data=[TWEET], headers={"x-desearch-next-cursor": cursor}),
+            FakeResponse(json_data=[TWEET]),
+        )
+
+        with_cursor = await client.x_search(query="desearch", include_metadata=True)
+        without_cursor = await client.x_search(query="desearch", include_metadata=True)
+
+        self.assertEqual(with_cursor.metadata.next_cursor, cursor)
+        self.assertIsNone(without_cursor.metadata.next_cursor)
+        self.assertIsNone(without_cursor.metadata.cost_usd)
+
     async def test_extract_requests_markdown(self):
         client = self.make_client(FakeResponse(text_data="# Desearch"))
 
