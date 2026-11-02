@@ -4,7 +4,7 @@ This document explains how the SDK is structured today, based on the checked-in 
 
 ## Overview
 
-`desearch-py` is a thin async wrapper over the Desearch HTTP API, including the task-based People Search API, the paginated TikTok, Instagram, and Facebook routes, and the public network stats stream. The codebase is intentionally small and split across three public-facing package files:
+`desearch-py` is a thin async wrapper over the Desearch HTTP API, including the task-based People Search API, the paginated TikTok, Instagram, Facebook, YouTube, and Reddit routes, the Threads routes, and the public network stats stream. The codebase is intentionally small and split across three public-facing package files:
 
 - `desearch_py/api.py` contains the async client and every endpoint method.
 - `desearch_py/models.py` contains enums plus permissive `pydantic` response models.
@@ -128,9 +128,9 @@ A 409 from pause, resume, or cancel is raised as `PeopleTaskConflictError`, a `D
 
 ### 6. Social routes return one page; the cursor travels in metadata
 
-The TikTok, Instagram, and Facebook methods share two private helpers on top of `_handle_request()`: `_request_list()` parses a JSON array item by item into the route's model (and returns any non-list body unchanged, like `x_search`), and `_request_object()` parses one object. `search_api()`, `network_stats()`, and `network_stats_history()` use `_request_object()` too.
+The TikTok, Instagram, Facebook, YouTube, Reddit, and Threads methods share two private helpers on top of `_handle_request()`: `_request_list()` parses a JSON array item by item into the route's model (and returns any non-list body unchanged, like `x_search`), and `_request_object()` parses one object. `search_api()`, `network_stats()`, and `network_stats_history()` use `_request_object()` too.
 
-List routes put the next-page cursor in the `x-desearch-next-cursor` response header, not in the body, so the body stays a plain JSON array. The SDK reads it into `DesearchCostMetadata.next_cursor`, which callers get with `include_metadata=True`, and sends it back as the `cursor` query param (GET routes) or body field (`tiktok_search`, `facebook_search`). The SDK never builds or edits a cursor and does not follow pages on its own. `instagram_search` and `tiktok_trending` take no cursor because those routes do not paginate.
+List routes put the next-page cursor in the `x-desearch-next-cursor` response header, not in the body, so the body stays a plain JSON array. The SDK reads it into `DesearchCostMetadata.next_cursor`, which callers get with `include_metadata=True`, and sends it back as the `cursor` query param (GET routes) or body field (`tiktok_search`, `facebook_search`, `youtube_search`, `reddit_search`). The SDK never builds or edits a cursor and does not follow pages on its own. `instagram_search`, `tiktok_trending`, and the Threads methods take no cursor because those routes do not paginate.
 
 Path parameters go through `_path_segment()`, which percent-encodes the value with no safe characters. A `/` becomes `%2F`, so an Instagram post URL or an ID containing `/` stays one segment on the wire; the API decodes it before matching its `{id:path}` routes.
 

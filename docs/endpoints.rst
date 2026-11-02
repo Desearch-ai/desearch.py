@@ -158,6 +158,95 @@ Notes for every social method:
   instead of a list.
 
 
+YouTube
+-------
+
+``youtube_search(query, type=None, upload_date=None, sort_by=None, duration=None, cursor=None)``
+   ``POST /desearch/youtube/search``. Videos, Shorts, live streams, channels
+   and playlists; each ``YouTubeItem`` has a ``type``. Filters: ``type``
+   (``videos``, ``shorts``, ``channels``, ``playlists``), ``upload_date``
+   (``today``, ``this_week``, ``this_month``, ``this_year``), ``sort_by``
+   (``relevance``, ``popular``), ``duration`` (``under_3_min``,
+   ``between_3_and_20_min``, ``over_20_min``). Paginates; send the cursor back
+   with the same ``query`` and filters.
+
+``youtube_video(id)``
+   ``GET /desearch/youtube/video/{id}``. A video or Short ID or URL. Returns
+   ``YouTubeVideo`` with chapters and ``captionLanguages``.
+
+``youtube_transcript(video_id, language=None)``
+   ``GET /desearch/youtube/transcript/{video_id}``. Returns
+   ``YouTubeTranscript`` (``text`` and timed ``segments``). A video without
+   captions is a 404 (not charged).
+
+``youtube_comments(video_id, order=None, cursor=None)``
+   ``GET /desearch/youtube/comments/{video_id}``. Top-level comments;
+   ``order`` is ``top`` or ``newest``. Returns ``List[YouTubeComment]``.
+   Paginates.
+
+``youtube_channel(handle)``
+   ``GET /desearch/youtube/channel/{handle}``. A handle with or without ``@``,
+   or a channel ID. Returns ``YouTubeChannel``.
+
+``youtube_channel_videos(handle, sort=None, cursor=None)``
+   ``GET /desearch/youtube/channel/{handle}/videos``. ``sort`` is ``latest``
+   (default) or ``popular``. Returns ``List[YouTubeItem]``. Paginates.
+
+
+Reddit
+------
+
+``reddit_search(query, sort=None, timeframe=None, cursor=None)``
+   ``POST /desearch/reddit/search``. Posts across all subreddits. ``sort`` is
+   ``relevance``, ``new``, ``top`` or ``comment_count``; ``timeframe`` is
+   ``all``, ``day``, ``week``, ``month`` or ``year``. Returns
+   ``List[RedditPost]``. Paginates.
+
+``reddit_subreddit(name)``
+   ``GET /desearch/reddit/subreddit/{name}``. Case-sensitive name without
+   ``r/``. Returns ``RedditSubreddit``.
+
+``reddit_subreddit_posts(name, sort=None, timeframe=None, cursor=None)``
+   ``GET /desearch/reddit/subreddit/{name}/posts``. ``sort`` is ``best``,
+   ``hot``, ``new``, ``top`` or ``rising``; ``timeframe`` applies to ``top``.
+   Returns ``List[RedditPost]``. Paginates.
+
+``reddit_post_by_id(id)``
+   ``GET /desearch/reddit/post/{id}``. Post ID (with or without ``t3_``) or
+   URL. Returns ``RedditPost`` without its comments.
+
+``reddit_comments(post_id, cursor=None)``
+   ``GET /desearch/reddit/comments/{post_id}``. Returns ``List[RedditComment]``,
+   a tree: top-level comments with the replies Reddit loaded in ``replies``.
+   Paginates.
+
+
+Threads
+-------
+
+``threads_search(query, start_date=None, end_date=None)``
+   ``POST /desearch/threads/search``. Dates are ``YYYY-MM-DD``. Returns
+   ``List[ThreadsPost]``. One page only.
+
+``threads_search_users(query)``
+   ``POST /desearch/threads/search/users``. Returns ``List[ThreadsUser]``.
+
+``threads_profile(username)``
+   ``GET /desearch/threads/profile/{username}``. Returns ``ThreadsProfile``.
+
+``threads_profile_posts(username)``
+   ``GET /desearch/threads/profile/{username}/posts``. The latest public posts
+   (Threads shows 20-30). Returns ``List[ThreadsPost]``. One page only.
+
+``threads_post_by_id(id)``
+   ``GET /desearch/threads/post/{id}``. A post URL or shortcode. Returns
+   ``ThreadsPostDetail`` with the replies in ``comments`` and the author's
+   continuation posts in ``threadItems``.
+
+YouTube, Reddit and Threads methods take no ``count`` and are billed one
+request per call, including an empty page; a 404, a 422 and a 5xx are free.
+
+
 Pagination
 ----------
 
@@ -185,7 +274,8 @@ in the ``x-desearch-next-cursor`` response header; the SDK exposes it as
   charged.
 * A page shorter than ``count`` is not the end; only a missing
   ``next_cursor`` is.
-* ``tiktok_trending`` and ``instagram_search`` do not paginate.
+* ``tiktok_trending``, ``instagram_search`` and the Threads methods do not
+  paginate.
 
 
 Network stats

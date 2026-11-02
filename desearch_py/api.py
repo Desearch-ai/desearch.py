@@ -37,11 +37,23 @@ from .models import (
     NetworkStatsEvent,
     NetworkStatsHistoryResponse,
     NetworkStatsResponse,
+    RedditComment,
+    RedditPost,
+    RedditSubreddit,
     SearchApiMode,
     SearchApiResponse,
     TikTokComment,
     TikTokPost,
     TikTokProfile,
+    ThreadsPost,
+    ThreadsPostDetail,
+    ThreadsProfile,
+    ThreadsUser,
+    YouTubeChannel,
+    YouTubeComment,
+    YouTubeItem,
+    YouTubeTranscript,
+    YouTubeVideo,
     LinkedInProfileSearchFilters,
     LinkedInProfileSearchRequest,
     PeopleExportFormat,
@@ -1824,6 +1836,504 @@ class Desearch:
         }
         return await self._request_list(
             "GET", url, InstagramMedia, include_metadata=include_metadata, params=params
+        )
+
+    # ─── YouTube ─────────────────────────────────────────────────────────────
+    #
+    # Each call is billed as one request, including an empty page; a 404, a
+    # 422 and a 5xx are free. List methods return one page and take no
+    # ``count``: the page size is whatever YouTube or Reddit returns.
+
+    async def youtube_search(
+        self,
+        query: str,
+        type: Optional[str] = None,
+        upload_date: Optional[str] = None,
+        sort_by: Optional[str] = None,
+        duration: Optional[str] = None,
+        cursor: Optional[str] = None,
+        *,
+        include_metadata: bool = False,
+    ) -> Union[
+        List[YouTubeItem],
+        Dict[str, Any],
+        DesearchResponse[Union[List[YouTubeItem], Dict[str, Any]]],
+    ]:
+        """
+        Search public YouTube videos, Shorts, live streams, channels and playlists.
+
+        Each result has a ``type``; a video ``id`` can be passed to
+        :meth:`youtube_video`, :meth:`youtube_transcript` and
+        :meth:`youtube_comments`.
+
+        Args:
+            query (str): Keyword or phrase (1-500 characters). Use ``intitle:"…"``
+                for stricter title matching.
+            type (Optional[str]): ``videos``, ``shorts``, ``channels`` or ``playlists``.
+                Omit for mixed results.
+            upload_date (Optional[str]): ``today``, ``this_week``, ``this_month`` or ``this_year``.
+            sort_by (Optional[str]): ``relevance`` or ``popular``.
+            duration (Optional[str]): ``under_3_min``, ``between_3_and_20_min`` or
+                ``over_20_min``. Applies to videos, not Shorts.
+            cursor (Optional[str]): ``next_cursor`` from the previous page's metadata,
+                sent back unchanged with the same ``query`` and filters. Omit it for the first page.
+
+        Returns:
+            Union[List[YouTubeItem], Dict[str, Any]]: One page of results, or the raw body when it is not a list.
+        """
+        url = f"{self.base_url}/desearch/youtube/search"
+        payload = {
+            k: v
+            for k, v in {
+                "query": query,
+                "type": type,
+                "upload_date": upload_date,
+                "sort_by": sort_by,
+                "duration": duration,
+                "cursor": cursor,
+            }.items()
+            if v is not None
+        }
+        return await self._request_list(
+            "POST", url, YouTubeItem, include_metadata=include_metadata, json=payload
+        )
+
+    async def youtube_video(
+        self,
+        id: str,
+        *,
+        include_metadata: bool = False,
+    ) -> Union[YouTubeVideo, DesearchResponse[YouTubeVideo]]:
+        """
+        Fetch a public YouTube video or Short: title, description, channel,
+        views, likes, comments, chapters and caption languages.
+
+        Args:
+            id (str): Video or Short ID (e.g. ``dQw4w9WgXcQ``) or its full URL.
+
+        Returns:
+            YouTubeVideo: The video.
+        """
+        url = f"{self.base_url}/desearch/youtube/video/{_path_segment(id)}"
+        return await self._request_object(
+            "GET", url, YouTubeVideo, include_metadata=include_metadata
+        )
+
+    async def youtube_transcript(
+        self,
+        video_id: str,
+        language: Optional[str] = None,
+        *,
+        include_metadata: bool = False,
+    ) -> Union[YouTubeTranscript, DesearchResponse[YouTubeTranscript]]:
+        """
+        Fetch the public captions of a YouTube video or Short as plain text and
+        timed segments.
+
+        A video without captions raises :class:`DesearchAPIError` with status
+        404, which is not charged.
+
+        Args:
+            video_id (str): Video or Short ID or its full URL.
+            language (Optional[str]): Caption language code such as ``en`` or ``es``
+                (a ``languageCode`` from ``YouTubeVideo.captionLanguages``). Omit for
+                YouTube's default track.
+
+        Returns:
+            YouTubeTranscript: The transcript.
+        """
+        url = f"{self.base_url}/desearch/youtube/transcript/{_path_segment(video_id)}"
+        params = {k: v for k, v in {"language": language}.items() if v is not None}
+        return await self._request_object(
+            "GET",
+            url,
+            YouTubeTranscript,
+            include_metadata=include_metadata,
+            params=params,
+        )
+
+    async def youtube_comments(
+        self,
+        video_id: str,
+        order: Optional[str] = None,
+        cursor: Optional[str] = None,
+        *,
+        include_metadata: bool = False,
+    ) -> Union[
+        List[YouTubeComment],
+        Dict[str, Any],
+        DesearchResponse[Union[List[YouTubeComment], Dict[str, Any]]],
+    ]:
+        """
+        Fetch public top-level comments on a YouTube video.
+
+        Args:
+            video_id (str): Video or Short ID or its full URL.
+            order (Optional[str]): ``top`` or ``newest``.
+            cursor (Optional[str]): ``next_cursor`` from the previous page's metadata,
+                sent back unchanged for the same ``video_id``. Omit it for the first page.
+
+        Returns:
+            Union[List[YouTubeComment], Dict[str, Any]]: One page of comments, or the raw body when it is not a list.
+        """
+        url = f"{self.base_url}/desearch/youtube/comments/{_path_segment(video_id)}"
+        params = {
+            k: v for k, v in {"order": order, "cursor": cursor}.items() if v is not None
+        }
+        return await self._request_list(
+            "GET", url, YouTubeComment, include_metadata=include_metadata, params=params
+        )
+
+    async def youtube_channel(
+        self,
+        handle: str,
+        *,
+        include_metadata: bool = False,
+    ) -> Union[YouTubeChannel, DesearchResponse[YouTubeChannel]]:
+        """
+        Fetch a public YouTube channel: subscribers, description, country and links.
+
+        Args:
+            handle (str): Channel handle, with or without ``@``, or channel ID (``UC…``).
+
+        Returns:
+            YouTubeChannel: The channel.
+        """
+        url = f"{self.base_url}/desearch/youtube/channel/{_path_segment(handle)}"
+        return await self._request_object(
+            "GET", url, YouTubeChannel, include_metadata=include_metadata
+        )
+
+    async def youtube_channel_videos(
+        self,
+        handle: str,
+        sort: Optional[str] = None,
+        cursor: Optional[str] = None,
+        *,
+        include_metadata: bool = False,
+    ) -> Union[
+        List[YouTubeItem],
+        Dict[str, Any],
+        DesearchResponse[Union[List[YouTubeItem], Dict[str, Any]]],
+    ]:
+        """
+        Fetch the public videos a YouTube channel uploaded.
+
+        Args:
+            handle (str): Channel handle, with or without ``@``, or channel ID (``UC…``).
+            sort (Optional[str]): ``latest`` (the API default) or ``popular``.
+            cursor (Optional[str]): ``next_cursor`` from the previous page's metadata,
+                sent back unchanged with the same ``handle`` and ``sort``. Omit it for the first page.
+
+        Returns:
+            Union[List[YouTubeItem], Dict[str, Any]]: One page of videos, or the raw body when it is not a list.
+        """
+        url = (
+            f"{self.base_url}/desearch/youtube/channel/"
+            f"{_path_segment(handle)}/videos"
+        )
+        params = {
+            k: v for k, v in {"sort": sort, "cursor": cursor}.items() if v is not None
+        }
+        return await self._request_list(
+            "GET", url, YouTubeItem, include_metadata=include_metadata, params=params
+        )
+
+    # ─── Reddit ──────────────────────────────────────────────────────────────
+
+    async def reddit_search(
+        self,
+        query: str,
+        sort: Optional[str] = None,
+        timeframe: Optional[str] = None,
+        cursor: Optional[str] = None,
+        *,
+        include_metadata: bool = False,
+    ) -> Union[
+        List[RedditPost],
+        Dict[str, Any],
+        DesearchResponse[Union[List[RedditPost], Dict[str, Any]]],
+    ]:
+        """
+        Search public Reddit posts across all subreddits.
+
+        Args:
+            query (str): Keyword or phrase (1-500 characters).
+            sort (Optional[str]): ``relevance``, ``new``, ``top`` or ``comment_count``.
+            timeframe (Optional[str]): ``all``, ``day``, ``week``, ``month`` or ``year``.
+            cursor (Optional[str]): ``next_cursor`` from the previous page's metadata,
+                sent back unchanged with the same ``query`` and filters. Omit it for the first page.
+
+        Returns:
+            Union[List[RedditPost], Dict[str, Any]]: One page of posts, or the raw body when it is not a list.
+        """
+        url = f"{self.base_url}/desearch/reddit/search"
+        payload = {
+            k: v
+            for k, v in {
+                "query": query,
+                "sort": sort,
+                "timeframe": timeframe,
+                "cursor": cursor,
+            }.items()
+            if v is not None
+        }
+        return await self._request_list(
+            "POST", url, RedditPost, include_metadata=include_metadata, json=payload
+        )
+
+    async def reddit_subreddit(
+        self,
+        name: str,
+        *,
+        include_metadata: bool = False,
+    ) -> Union[RedditSubreddit, DesearchResponse[RedditSubreddit]]:
+        """
+        Fetch a public subreddit: description, rules, weekly active users and contributions.
+
+        Args:
+            name (str): Subreddit name without ``r/``. It is case-sensitive
+                (``AskReddit``, not ``askreddit``).
+
+        Returns:
+            RedditSubreddit: The subreddit.
+        """
+        url = f"{self.base_url}/desearch/reddit/subreddit/{_path_segment(name)}"
+        return await self._request_object(
+            "GET", url, RedditSubreddit, include_metadata=include_metadata
+        )
+
+    async def reddit_subreddit_posts(
+        self,
+        name: str,
+        sort: Optional[str] = None,
+        timeframe: Optional[str] = None,
+        cursor: Optional[str] = None,
+        *,
+        include_metadata: bool = False,
+    ) -> Union[
+        List[RedditPost],
+        Dict[str, Any],
+        DesearchResponse[Union[List[RedditPost], Dict[str, Any]]],
+    ]:
+        """
+        Fetch public posts of a subreddit.
+
+        Args:
+            name (str): Subreddit name without ``r/`` (case-sensitive).
+            sort (Optional[str]): ``best``, ``hot``, ``new``, ``top`` or ``rising``.
+            timeframe (Optional[str]): ``all``, ``day``, ``week``, ``month`` or ``year``.
+                Used with ``sort="top"`` and ignored with another sort; without a
+                sort it means ``top``.
+            cursor (Optional[str]): ``next_cursor`` from the previous page's metadata,
+                sent back unchanged with the same ``name`` and filters. Omit it for the first page.
+
+        Returns:
+            Union[List[RedditPost], Dict[str, Any]]: One page of posts, or the raw body when it is not a list.
+        """
+        url = (
+            f"{self.base_url}/desearch/reddit/subreddit/"
+            f"{_path_segment(name)}/posts"
+        )
+        params = {
+            k: v
+            for k, v in {
+                "sort": sort,
+                "timeframe": timeframe,
+                "cursor": cursor,
+            }.items()
+            if v is not None
+        }
+        return await self._request_list(
+            "GET", url, RedditPost, include_metadata=include_metadata, params=params
+        )
+
+    async def reddit_post_by_id(
+        self,
+        id: str,
+        *,
+        include_metadata: bool = False,
+    ) -> Union[RedditPost, DesearchResponse[RedditPost]]:
+        """
+        Fetch a public Reddit post, without its comments.
+
+        Args:
+            id (str): Post ID (e.g. ``1q6pxwn``, with or without ``t3_``) or its full URL.
+
+        Returns:
+            RedditPost: The post.
+        """
+        url = f"{self.base_url}/desearch/reddit/post/{_path_segment(id)}"
+        return await self._request_object(
+            "GET", url, RedditPost, include_metadata=include_metadata
+        )
+
+    async def reddit_comments(
+        self,
+        post_id: str,
+        cursor: Optional[str] = None,
+        *,
+        include_metadata: bool = False,
+    ) -> Union[
+        List[RedditComment],
+        Dict[str, Any],
+        DesearchResponse[Union[List[RedditComment], Dict[str, Any]]],
+    ]:
+        """
+        Fetch public comments on a Reddit post as a tree: top-level comments
+        with the replies Reddit loaded alongside them.
+
+        Args:
+            post_id (str): Post ID (with or without ``t3_``) or its full URL.
+            cursor (Optional[str]): ``next_cursor`` from the previous page's metadata,
+                sent back unchanged for the same ``post_id``. Omit it for the first page.
+
+        Returns:
+            Union[List[RedditComment], Dict[str, Any]]: One page of comments, or the raw body when it is not a list.
+        """
+        url = f"{self.base_url}/desearch/reddit/comments/{_path_segment(post_id)}"
+        params = {k: v for k, v in {"cursor": cursor}.items() if v is not None}
+        return await self._request_list(
+            "GET", url, RedditComment, include_metadata=include_metadata, params=params
+        )
+
+    # ─── Threads ─────────────────────────────────────────────────────────────
+    #
+    # Threads routes return one page and never a cursor.
+
+    async def threads_search(
+        self,
+        query: str,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        *,
+        include_metadata: bool = False,
+    ) -> Union[
+        List[ThreadsPost],
+        Dict[str, Any],
+        DesearchResponse[Union[List[ThreadsPost], Dict[str, Any]]],
+    ]:
+        """
+        Search public Threads posts. One page of results; there are no further pages.
+
+        Args:
+            query (str): Keyword or phrase (1-500 characters).
+            start_date (Optional[str]): Only posts on or after this date (YYYY-MM-DD).
+            end_date (Optional[str]): Only posts on or before this date (YYYY-MM-DD).
+
+        Returns:
+            Union[List[ThreadsPost], Dict[str, Any]]: Posts, or the raw body when it is not a list.
+        """
+        url = f"{self.base_url}/desearch/threads/search"
+        payload = {
+            k: v
+            for k, v in {
+                "query": query,
+                "start_date": start_date,
+                "end_date": end_date,
+            }.items()
+            if v is not None
+        }
+        return await self._request_list(
+            "POST", url, ThreadsPost, include_metadata=include_metadata, json=payload
+        )
+
+    async def threads_search_users(
+        self,
+        query: str,
+        *,
+        include_metadata: bool = False,
+    ) -> Union[
+        List[ThreadsUser],
+        Dict[str, Any],
+        DesearchResponse[Union[List[ThreadsUser], Dict[str, Any]]],
+    ]:
+        """
+        Search public Threads accounts by username or name.
+
+        Args:
+            query (str): Username or name (1-100 characters).
+
+        Returns:
+            Union[List[ThreadsUser], Dict[str, Any]]: Accounts, or the raw body when it is not a list.
+        """
+        url = f"{self.base_url}/desearch/threads/search/users"
+        return await self._request_list(
+            "POST",
+            url,
+            ThreadsUser,
+            include_metadata=include_metadata,
+            json={"query": query},
+        )
+
+    async def threads_profile(
+        self,
+        username: str,
+        *,
+        include_metadata: bool = False,
+    ) -> Union[ThreadsProfile, DesearchResponse[ThreadsProfile]]:
+        """
+        Fetch a public Threads profile: bio, followers, verification and links.
+
+        Args:
+            username (str): Threads username, without ``@``.
+
+        Returns:
+            ThreadsProfile: The profile.
+        """
+        url = f"{self.base_url}/desearch/threads/profile/{_path_segment(username)}"
+        return await self._request_object(
+            "GET", url, ThreadsProfile, include_metadata=include_metadata
+        )
+
+    async def threads_profile_posts(
+        self,
+        username: str,
+        *,
+        include_metadata: bool = False,
+    ) -> Union[
+        List[ThreadsPost],
+        Dict[str, Any],
+        DesearchResponse[Union[List[ThreadsPost], Dict[str, Any]]],
+    ]:
+        """
+        Fetch a Threads account's latest public posts. Threads shows only the
+        latest 20-30 posts publicly, so there are no further pages.
+
+        Args:
+            username (str): Threads username, without ``@``.
+
+        Returns:
+            Union[List[ThreadsPost], Dict[str, Any]]: Posts, or the raw body when it is not a list.
+        """
+        url = (
+            f"{self.base_url}/desearch/threads/profile/"
+            f"{_path_segment(username)}/posts"
+        )
+        return await self._request_list(
+            "GET", url, ThreadsPost, include_metadata=include_metadata
+        )
+
+    async def threads_post_by_id(
+        self,
+        id: str,
+        *,
+        include_metadata: bool = False,
+    ) -> Union[ThreadsPostDetail, DesearchResponse[ThreadsPostDetail]]:
+        """
+        Fetch a public Threads post with its public replies and the author's
+        continuation posts in the same thread.
+
+        Args:
+            id (str): Post URL (e.g. ``https://www.threads.com/@zuck/post/DK-BydcJHkF``)
+                or shortcode (``DK-BydcJHkF``).
+
+        Returns:
+            ThreadsPostDetail: The post, its ``comments`` and ``threadItems``.
+        """
+        url = f"{self.base_url}/desearch/threads/post/{_path_segment(id)}"
+        return await self._request_object(
+            "GET", url, ThreadsPostDetail, include_metadata=include_metadata
         )
 
     # ─── Network Stats ───────────────────────────────────────────────────────

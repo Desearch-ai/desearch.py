@@ -5,9 +5,37 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-> Note: the version in this repository is 1.8.0, but the latest release
+> Note: the version in this repository is 1.11.0, but the latest release
 > published on PyPI is 1.2.1. Versions 1.3.0 through 1.7.0 were never published
 > to PyPI, and 1.3.0 through 1.6.2 are not recorded individually here.
+
+## [1.11.0] - unreleased (not yet published to PyPI)
+
+Stacked on the 1.8.0 changes below (desearch.py#35). `main` already has 1.9.0
+and 1.10.0, so #35 is rebased first and both ship together as 1.11.0.
+
+### Added
+
+- **YouTube**: `youtube_search`, `youtube_video`, `youtube_transcript`,
+  `youtube_comments`, `youtube_channel`, and `youtube_channel_videos`, with the
+  models `YouTubeItem`, `YouTubeVideo`, `YouTubeTranscript`,
+  `YouTubeTranscriptSegment`, `YouTubeComment`, `YouTubeCommentAuthor`,
+  `YouTubeChannel`, `YouTubeChannelRef`, `YouTubeChapter`, and
+  `YouTubeCaptionLanguage`.
+- **Reddit**: `reddit_search`, `reddit_subreddit`, `reddit_subreddit_posts`,
+  `reddit_post_by_id`, and `reddit_comments`, with the models `RedditPost`,
+  `RedditComment` (a tree: `replies` holds nested `RedditComment` items), and
+  `RedditSubreddit`.
+- **Threads**: `threads_search`, `threads_search_users`, `threads_profile`,
+  `threads_profile_posts`, and `threads_post_by_id`, with the models
+  `ThreadsPost`, `ThreadsPostDetail`, `ThreadsProfile`, and `ThreadsUser`.
+- The six YouTube and Reddit list methods page like the TikTok ones: the
+  `x-desearch-next-cursor` header comes back as `metadata.next_cursor` with
+  `include_metadata=True`, and goes back as `cursor`. Threads never pages.
+  Each call is billed as one request, including an empty page.
+- `scripts/e2e_youtube_reddit_threads.py`, a live smoke test of the new
+  methods with billing-header checks (`--base-url`, `--key-env`; not run by
+  CI).
 
 ## [1.8.0] - unreleased (not yet published to PyPI)
 

@@ -120,6 +120,29 @@ List methods return one page. `count` is a maximum (1-100). With `include_metada
 | `facebook_comments` | `GET /desearch/facebook/comments/{post_id}` | ✅ | `count`, `cursor`; about 10 per page. `List[FacebookComment]`. |
 | `facebook_hashtag` | `GET /desearch/facebook/hashtag/{tag}` | ✅ | Meta Ad Library records. `count`, `cursor`. `List[FacebookPost]`. |
 
+## YouTube, Reddit, and Threads features
+
+Same paging as TikTok: `include_metadata=True` exposes `metadata.next_cursor`, sent back as `cursor`. These routes take no `count`; each call is billed as one request, including an empty page.
+
+| Method | Endpoint | Status | Notes |
+|---|---|---|---|
+| `youtube_search` | `POST /desearch/youtube/search` | ✅ | `query`, `type`, `upload_date`, `sort_by`, `duration`, `cursor`. `List[YouTubeItem]`. |
+| `youtube_video` | `GET /desearch/youtube/video/{id}` | ✅ | ID or URL. `YouTubeVideo`. |
+| `youtube_transcript` | `GET /desearch/youtube/transcript/{video_id}` | ✅ | `language`. 404 when there are no captions. `YouTubeTranscript`. |
+| `youtube_comments` | `GET /desearch/youtube/comments/{video_id}` | ✅ | `order`, `cursor`. `List[YouTubeComment]`. |
+| `youtube_channel` | `GET /desearch/youtube/channel/{handle}` | ✅ | Handle or channel ID. `YouTubeChannel`. |
+| `youtube_channel_videos` | `GET /desearch/youtube/channel/{handle}/videos` | ✅ | `sort`, `cursor`. `List[YouTubeItem]`. |
+| `reddit_search` | `POST /desearch/reddit/search` | ✅ | `query`, `sort`, `timeframe`, `cursor`. `List[RedditPost]`. |
+| `reddit_subreddit` | `GET /desearch/reddit/subreddit/{name}` | ✅ | Case-sensitive name. `RedditSubreddit`. |
+| `reddit_subreddit_posts` | `GET /desearch/reddit/subreddit/{name}/posts` | ✅ | `sort`, `timeframe`, `cursor`. `List[RedditPost]`. |
+| `reddit_post_by_id` | `GET /desearch/reddit/post/{id}` | ✅ | ID or URL. `RedditPost`. |
+| `reddit_comments` | `GET /desearch/reddit/comments/{post_id}` | ✅ | `cursor`. Comment tree. `List[RedditComment]`. |
+| `threads_search` | `POST /desearch/threads/search` | ✅ | `query`, `start_date`, `end_date`; no pagination. `List[ThreadsPost]`. |
+| `threads_search_users` | `POST /desearch/threads/search/users` | ✅ | `query`. `List[ThreadsUser]`. |
+| `threads_profile` | `GET /desearch/threads/profile/{username}` | ✅ | `ThreadsProfile`. |
+| `threads_profile_posts` | `GET /desearch/threads/profile/{username}/posts` | ✅ | Latest posts; no pagination. `List[ThreadsPost]`. |
+| `threads_post_by_id` | `GET /desearch/threads/post/{id}` | ✅ | URL or shortcode. `ThreadsPostDetail`. |
+
 ## Network stats features
 
 Public routes: no API key is needed and they are free.
@@ -165,7 +188,7 @@ Searches run as background tasks. Only the four search methods are billed (per p
 | Surface | Status | Notes |
 |---|---|---|
 | Enums exported from package root | ✅ | `Tool`, `WebTool`, `DateFilter`, `ResultType`, `Sort`, `SearchApiMode`, `PeoplePlatform`, `PeopleTaskStatus`, `PeopleProfileSort`, `PeopleExportFormat`, `PeopleChannel`, `PeopleCompletionReason`, `PeopleCriterionVerdict`, `PeopleEnrichment`, `PeopleEnrichmentError` are all re-exported. |
-| Response models exported from package root | ✅ | Core search, Search API, web, X, TikTok, Instagram, Facebook, network stats, People Search, and error models are re-exported. |
+| Response models exported from package root | ✅ | Core search, Search API, web, X, TikTok, Instagram, Facebook, YouTube, Reddit, Threads, network stats, People Search, and error models are re-exported. |
 | Forward-compatible parsing | ✅ | Models use `ConfigDict(extra="allow")` to tolerate extra API fields. |
 | Strict schema enforcement | ❌ | The SDK intentionally does not reject unknown fields. |
 | Type marker file | ✅ | `desearch_py/py.typed` is included in package data. |
@@ -188,6 +211,7 @@ Searches run as background tasks. Only the four search methods are billed (per p
 | AI search | 2 | 1 | 1 | 0 |
 | Search API | 1 | 0 | 0 | 0 |
 | TikTok / Instagram / Facebook | 19 | 0 | 0 | 0 |
+| YouTube / Reddit / Threads | 16 | 0 | 0 | 0 |
 | Network stats | 3 | 0 | 0 | 0 |
 | X / Twitter | 3 | 6 | 0 | 0 |
 | Web | 1 | 1 | 0 | 0 |
