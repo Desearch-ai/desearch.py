@@ -41,6 +41,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `completion_reason` `all_domains_processed`, or gets the warning
   `scope_not_applied` when it names them without their websites.
 
+### Fixed
+
+- The `company_search` docstring and the README said Company Search bills a
+  minimum of 2 companies when it delivers any. Since the 2026-11-02 price
+  release the minimum is 1, as for Company Enrich.
+
 ## [1.11.0] - unreleased (not yet published to PyPI)
 
 Full API coverage (TikTok, Instagram, Facebook, Search API, network stats;

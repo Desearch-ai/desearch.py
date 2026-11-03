@@ -3314,7 +3314,7 @@ class Desearch:
 
         Billing: ``count`` companies are reserved at the route price. When the
         task ends you pay only for the companies it delivered, with a minimum
-        of 2 when it delivers any; a company left out by ``min_score`` or
+        of 1 when it delivers any; a company left out by ``min_score`` or
         ``filters.require`` is not billed, and a task that delivers none is
         free. Such a search stops once it costs more than the companies it
         found pay for (``completion_reason`` ``cost_limit``, with
