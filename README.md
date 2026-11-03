@@ -566,6 +566,115 @@ HTTP errors raise `DesearchAPIError`, with the same statuses as People Search:
 - `410`: the results expired (they are kept 30 days after the task ends).
 - `409` from pause, resume, or cancel raises `CompanyTaskConflictError`, a `DesearchAPIError` subclass. `.detail` explains why, and `.task` holds the task's current state as a `CompanyTask`.
 
+## Monitors
+
+A monitor is a search that runs on a schedule and returns only what is new since its last run. Each run searches its sources (`web`, `x`, `reddit`, `youtube`, `threads`) inside a time window that starts where the previous run ended, drops everything the monitor has already seen, screens the rest with Jev against your `query` and `criteria`, and keeps the items that score at least `min_score`. Kept items stay readable through the API and go to your webhook (1.13.0 and later).
+
+```python
+import asyncio
+
+from desearch_py import Desearch, MonitorEvent, MonitorInterval, MonitorSource
+
+
+async def main() -> None:
+    async with Desearch(api_key="your_api_key") as client:
+        # The most one run, and a month of runs, can cost. Free.
+        estimate = await client.estimate_monitor(
+            sources=[MonitorSource.WEB, MonitorSource.X], interval=MonitorInterval.ONE_DAY
+        )
+        print(estimate.max_run_cost_usd, estimate.max_monthly_cost_usd)
+
+        # Create it. Free; the first run is queued at once (run_now=False to wait).
+        monitor = await client.create_monitor(
+            query="Bittensor subnet launches and updates",
+            name="Bittensor subnet news",
+            criteria=["Announces a new subnet, release or partnership"],
+            sources=[MonitorSource.WEB, MonitorSource.X, MonitorSource.REDDIT],
+            interval=MonitorInterval.ONE_DAY,
+            options={"x": {"count": 20, "lang": "en"}, "web": {"count": 10}},
+            webhook={
+                "url": "https://example.com/hooks/desearch",
+                "events": [MonitorEvent.ITEMS_FOUND, MonitorEvent.RUN_FAILED],
+            },
+            metadata={"team": "growth"},
+        )
+        # Shown only now (and by rotate_monitor_webhook_secret). Store it.
+        secret = monitor.webhook_secret
+
+        # Run it now, wait for the run, and read what it kept.
+        run = await client.trigger_monitor(monitor.monitor_id)
+        run = await client.wait_for_monitor_run(monitor.monitor_id, run.run_id)
+        print(run.status, run.item_count, run.cost_usd, run.stats["screen"])
+        for item in run.items:
+            print(item.score, item.source, item.url, item.title or item.text)
+
+        # Everything it has kept so far, newest first, page by page.
+        async for item in client.iter_monitor_items(monitor.monitor_id, source="x"):
+            print(item.published_at, item.url)
+
+
+asyncio.run(main())
+```
+
+### Monitors pricing
+
+Creating, reading, and changing monitors is free. Each run pays for what it uses: its searches at their list price (the same as calling those endpoints yourself), Jev screening per item screened ($0.05 per 1,000 items), and, with `summary=True`, the summary's LLM usage plus 50%. Runs with no new items still pay for their searches. When a run is queued, its `max_run_cost_usd` is held on the balance; when it ends it is billed what it used (never more than the hold) and the rest is released. A run that cannot be held fails with `insufficient_credits` and the monitor pauses until you resume it. See <https://desearch.ai/pricing>.
+
+### Monitors methods
+
+| Method | Route | Returns |
+|---|---|---|
+| `create_monitor` | `POST /desearch/monitors` | `Monitor` (with `webhook_secret` when a webhook is set) |
+| `estimate_monitor` | `POST /desearch/monitors/estimate` | `MonitorEstimate` |
+| `list_monitors` | `GET /desearch/monitors` | `MonitorList` |
+| `get_monitor` | `GET /desearch/monitors/{monitor_id}` | `Monitor` |
+| `update_monitor` | `PATCH /desearch/monitors/{monitor_id}` | `Monitor` |
+| `pause_monitor` / `resume_monitor` | `PATCH /desearch/monitors/{monitor_id}` with `status` | `Monitor` |
+| `delete_monitor` | `DELETE /desearch/monitors/{monitor_id}` | `MonitorDeleted` |
+| `trigger_monitor` | `POST /desearch/monitors/{monitor_id}/trigger` | `MonitorRun` (queued) |
+| `list_monitor_runs` | `GET /desearch/monitors/{monitor_id}/runs` | `MonitorRunList` |
+| `get_monitor_run` | `GET /desearch/monitors/{monitor_id}/runs/{run_id}` | `MonitorRunWithItems` |
+| `list_monitor_items` | `GET /desearch/monitors/{monitor_id}/items` | `MonitorItemList` |
+| `test_monitor_webhook` | `POST /desearch/monitors/{monitor_id}/webhook/test` | `MonitorWebhookTest` |
+| `rotate_monitor_webhook_secret` | `POST /desearch/monitors/{monitor_id}/webhook/rotate-secret` | `MonitorWebhookSecret` |
+| `wait_for_monitor_run` | polls `get_monitor_run` | the ended `MonitorRunWithItems` |
+| `iter_monitor_items` | follows `next_cursor` on `list_monitor_items` | async iterator of `MonitorItem` |
+
+- `create_monitor` takes `query` (3-500 characters), `name`, `criteria` (up to 5, each up to 300 characters), `sources` (`MonitorSource`; API default `web` and `x`), `interval` (`MonitorInterval`: `1h`, `3h`, `6h`, `12h`, `1d`, `7d`; API default `1d`), `options` (`web.count` 10, 15 or 20; `x.count` 1-100, `x.lang`, `x.min_likes`), `min_score` (0-100, API default 60), `summary`, `webhook` (`url` HTTPS on a public address, `events` from `MonitorEvent`), `metadata` (up to 20 string keys, echoed in webhooks), and `run_now` (API default `True`). `estimate_monitor` takes `sources`, `options`, `summary`, and `interval`.
+- `update_monitor` sends only the arguments you pass. `status="paused"` stops scheduled runs (`trigger_monitor` still works) and `status="active"` resumes them, also after a pause for `insufficient_credits` or `webhook_failing`. `remove_webhook=True` removes the webhook. A new webhook URL gets a new `webhook_secret`, returned on that response.
+- `list_monitors` takes `status` (`active`, `paused`, a list, or a comma-separated string), `limit` (1-100), and `cursor`. `list_monitor_runs` takes `limit` (1-100) and `cursor`; `list_monitor_items` takes `limit` (1-200), `cursor`, and `source`. Pass `next_cursor` back as `cursor`; it is `None` on the last page.
+- `run.stats["sources"]` counts per source what was `fetched`, `in_window`, `new` and `passed`, and `run.stats["screen"]` is `jev` or `keyword` (the fallback). An item's `score` (0-100) is the lowest of `relevant` and the criteria; `signals` has `relevant` and `new_info`, and `data` holds source fields (X `likes`, `reposts`, `replies`, `views`; Reddit `subreddit`, `score`, `comments`; YouTube `channel`, `views`, `thumbnail`; web `highlights`, `domain`).
+- `wait_for_monitor_run` polls every 5 seconds for up to 10 minutes and raises `MonitorRunTimeoutError` (with the last state on `.run`) on timeout.
+
+### Verifying webhooks
+
+Deliveries are `POST`s with `Desearch-Event`, `Desearch-Delivery`, and `Desearch-Signature: t=<unix>,v1=<hex>` headers. `verify_webhook_signature` checks the HMAC-SHA256 of `"<t>.<raw body>"` keyed with the monitor's `webhook_secret`, rejects a timestamp more than 5 minutes off, and compares in constant time. Pass the raw body, before any JSON parsing:
+
+```python
+from desearch_py import MonitorWebhookEvent, verify_webhook_signature
+
+# e.g. in a Starlette/FastAPI handler
+body = await request.body()
+if not verify_webhook_signature(secret, request.headers.get("Desearch-Signature"), body):
+    return Response(status_code=400)
+event = MonitorWebhookEvent.model_validate_json(body)
+if event.type == "monitor.items.found":
+    for item in event.items:
+        print(item.url, item.score)
+```
+
+Answer with a 2xx within 10 seconds. A delivery that does not get one is retried after 1, 5, 30, 120, and 360 minutes, and after 5 deliveries in a row fail every attempt, the monitor pauses with `paused_reason` `webhook_failing`. `test_monitor_webhook` sends a signed `monitor.test` event (with `run` `None`) and reports what your endpoint answered.
+
+### Monitors errors
+
+HTTP errors raise `DesearchAPIError`:
+
+- `400`: an invalid body or cursor, a webhook URL that is not HTTPS on a public address, or a webhook test or secret rotation on a monitor without a webhook.
+- `402`: the balance cannot hold one run (on create and on trigger).
+- `404`: the monitor or run does not exist or belongs to another account.
+- `409`: the account already has 25 monitors (create), or a run is already queued or running (trigger).
+- `422`: a value out of range.
+
 ## Requirements
 
 Dependencies declared in source:
@@ -704,9 +813,19 @@ See [People Search](#people-search) for an example, pricing, and filters.
 
 See [Company Search](#company-search) for an example, pricing, and how results fill in.
 
+### Monitors endpoints
+
+- `create_monitor`, `estimate_monitor`, `list_monitors`, `get_monitor`, `update_monitor`, `delete_monitor`
+- `pause_monitor`, `resume_monitor`, `trigger_monitor`
+- `list_monitor_runs`, `get_monitor_run`, `list_monitor_items`
+- `test_monitor_webhook`, `rotate_monitor_webhook_secret`
+- helpers: `wait_for_monitor_run`, `iter_monitor_items`, and `verify_webhook_signature`
+
+See [Monitors](#monitors) for an example, pricing, and webhook verification.
+
 ### Typed exports
 
-The package re-exports the async client plus enums and models from `desearch_py.models`, including `Tool`, `WebTool`, `DateFilter`, `ResultType`, `Sort`, `ResponseData`, `DesearchCostMetadata`, `DesearchResponse`, `TwitterScraperTweet`, `WebSearchResponse`, `WebSearchResultsResponse`, `XLinksSearchResponse`, `XRetweetersResponse`, `XUserPostsResponse`, and `XTrendsResponse`. 1.11.0 adds the Search API models `SearchApiResponse`, `SearchApiResult`, and the enum `SearchApiMode`; the TikTok models `TikTokPost`, `TikTokProfile`, `TikTokComment`, `TikTokAuthor`, `TikTokStats`, and `TikTokMusic`; the Instagram models `InstagramMedia`, `InstagramProfile`, `InstagramComment`, `InstagramSearchResult`, and `InstagramStats`; the Facebook models `FacebookPost`, `FacebookProfile`, `FacebookComment`, `FacebookMedia`, and `FacebookPostStats`; and the network stats models `NetworkStatsResponse`, `NetworkStatsRates`, `NetworkStatsHistoryResponse`, `NetworkStatsHistoryPoint`, and `NetworkStatsEvent`. It also adds the YouTube models `YouTubeItem`, `YouTubeVideo`, `YouTubeTranscript`, `YouTubeTranscriptSegment`, `YouTubeComment`, `YouTubeCommentAuthor`, `YouTubeChannel`, `YouTubeChannelRef`, `YouTubeChapter`, and `YouTubeCaptionLanguage`; the Reddit models `RedditPost`, `RedditComment`, and `RedditSubreddit`; and the Threads models `ThreadsPost`, `ThreadsPostDetail`, `ThreadsProfile`, and `ThreadsUser`. People Search adds `PeopleTask`, `PeopleTaskList`, `PeopleResultsPage`, `Person`, `PeopleProfile`, `PeopleProfilesPage`, `PeopleResultFilters`, the four request and filters models, the result models `PeopleTaskWarning` and `PeopleCriterionCheck`, the enums `PeoplePlatform`, `PeopleTaskStatus`, `PeopleProfileSort`, `PeopleExportFormat`, `PeopleChannel`, `PeopleCompletionReason`, `PeopleCriterionVerdict`, `PeopleEnrichment`, and `PeopleEnrichmentError`, and the errors `PeopleTaskConflictError` and `PeopleTaskTimeoutError`. Company Search adds the request models `CompanySearchRequest`, `CompanySearchFilters`, and `CompanyEnrichRequest`, the task models `CompanyTask`, `CompanyTaskList`, and `CompanyTaskWarning`, the result models `CompanyResultsPage`, `Company`, `CompanyEmail`, `CompanyEmailVerification`, `CompanyEmailChecks`, `CompanyPhone`, `CompanySocial`, `CompanyPage`, `CompanyLocation`, `CompanyPerson`, `CompanyPersonEvidence`, `CompanyPrimaryContact`, `CompanyContactCoverage`, `CompanyEnrichment`, `CompanyEnrichmentStages`, `CompanyEnrichmentError`, `CompanyScore`, and `CompanyFoundBy`, the enums `CompanyTaskType`, `CompanyRole`, `CompanyRequirement`, `CompanyCompletionReason`, and `CompanyEmailStatus`, and the errors `CompanyTaskConflictError` and `CompanyTaskTimeoutError`. It reuses `PeopleTaskStatus`, `PeopleExportFormat`, `PeopleCriterionCheck`, `PeopleTaskLinks`, and `PeopleTaskCreatedBy`.
+The package re-exports the async client plus enums and models from `desearch_py.models`, including `Tool`, `WebTool`, `DateFilter`, `ResultType`, `Sort`, `ResponseData`, `DesearchCostMetadata`, `DesearchResponse`, `TwitterScraperTweet`, `WebSearchResponse`, `WebSearchResultsResponse`, `XLinksSearchResponse`, `XRetweetersResponse`, `XUserPostsResponse`, and `XTrendsResponse`. 1.11.0 adds the Search API models `SearchApiResponse`, `SearchApiResult`, and the enum `SearchApiMode`; the TikTok models `TikTokPost`, `TikTokProfile`, `TikTokComment`, `TikTokAuthor`, `TikTokStats`, and `TikTokMusic`; the Instagram models `InstagramMedia`, `InstagramProfile`, `InstagramComment`, `InstagramSearchResult`, and `InstagramStats`; the Facebook models `FacebookPost`, `FacebookProfile`, `FacebookComment`, `FacebookMedia`, and `FacebookPostStats`; and the network stats models `NetworkStatsResponse`, `NetworkStatsRates`, `NetworkStatsHistoryResponse`, `NetworkStatsHistoryPoint`, and `NetworkStatsEvent`. It also adds the YouTube models `YouTubeItem`, `YouTubeVideo`, `YouTubeTranscript`, `YouTubeTranscriptSegment`, `YouTubeComment`, `YouTubeCommentAuthor`, `YouTubeChannel`, `YouTubeChannelRef`, `YouTubeChapter`, and `YouTubeCaptionLanguage`; the Reddit models `RedditPost`, `RedditComment`, and `RedditSubreddit`; and the Threads models `ThreadsPost`, `ThreadsPostDetail`, `ThreadsProfile`, and `ThreadsUser`. People Search adds `PeopleTask`, `PeopleTaskList`, `PeopleResultsPage`, `Person`, `PeopleProfile`, `PeopleProfilesPage`, `PeopleResultFilters`, the four request and filters models, the result models `PeopleTaskWarning` and `PeopleCriterionCheck`, the enums `PeoplePlatform`, `PeopleTaskStatus`, `PeopleProfileSort`, `PeopleExportFormat`, `PeopleChannel`, `PeopleCompletionReason`, `PeopleCriterionVerdict`, `PeopleEnrichment`, and `PeopleEnrichmentError`, and the errors `PeopleTaskConflictError` and `PeopleTaskTimeoutError`. Company Search adds the request models `CompanySearchRequest`, `CompanySearchFilters`, and `CompanyEnrichRequest`, the task models `CompanyTask`, `CompanyTaskList`, and `CompanyTaskWarning`, the result models `CompanyResultsPage`, `Company`, `CompanyEmail`, `CompanyEmailVerification`, `CompanyEmailChecks`, `CompanyPhone`, `CompanySocial`, `CompanyPage`, `CompanyLocation`, `CompanyPerson`, `CompanyPersonEvidence`, `CompanyPrimaryContact`, `CompanyContactCoverage`, `CompanyEnrichment`, `CompanyEnrichmentStages`, `CompanyEnrichmentError`, `CompanyScore`, and `CompanyFoundBy`, the enums `CompanyTaskType`, `CompanyRole`, `CompanyRequirement`, `CompanyCompletionReason`, and `CompanyEmailStatus`, and the errors `CompanyTaskConflictError` and `CompanyTaskTimeoutError`. It reuses `PeopleTaskStatus`, `PeopleExportFormat`, `PeopleCriterionCheck`, `PeopleTaskLinks`, and `PeopleTaskCreatedBy`. 1.13.0 adds Monitors: `Monitor`, `MonitorList`, `MonitorRun`, `MonitorRunWithItems`, `MonitorRunList`, `MonitorItem`, `MonitorItemList`, `MonitorEstimate`, `MonitorDeleted`, `MonitorWebhook`, `MonitorWebhookTest`, `MonitorWebhookSecret`, `MonitorWebhookEvent`, `MonitorWebhookMonitor`, `MonitorLastRun`, `MonitorStats`, the request models `MonitorCreateRequest`, `MonitorUpdateRequest`, `MonitorEstimateRequest`, `MonitorOptions`, `MonitorWebOptions`, `MonitorXOptions`, and `MonitorWebhookConfig`, the enums `MonitorSource`, `MonitorInterval`, `MonitorEvent`, `MonitorStatus`, and `MonitorRunStatus`, `MONITOR_RUN_ENDED_STATUSES`, the error `MonitorRunTimeoutError`, and `verify_webhook_signature` with `SIGNATURE_HEADER` and `DEFAULT_TOLERANCE_SECONDS`.
 
 ## Architecture overview
 

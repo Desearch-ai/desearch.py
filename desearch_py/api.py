@@ -64,6 +64,25 @@ from .models import (
     YouTubeVideo,
     LinkedInProfileSearchFilters,
     LinkedInProfileSearchRequest,
+    Monitor,
+    MonitorCreateRequest,
+    MonitorDeleted,
+    MonitorEstimate,
+    MonitorEstimateRequest,
+    MonitorInterval,
+    MonitorItem,
+    MonitorItemList,
+    MonitorList,
+    MonitorOptions,
+    MonitorRun,
+    MonitorRunList,
+    MonitorRunWithItems,
+    MonitorSource,
+    MonitorStatus,
+    MonitorUpdateRequest,
+    MonitorWebhookConfig,
+    MonitorWebhookSecret,
+    MonitorWebhookTest,
     PeopleExportFormat,
     PeoplePlatform,
     PeopleProfileSort,
@@ -201,7 +220,24 @@ class CompanyTaskTimeoutError(TimeoutError):
         )
 
 
+class MonitorRunTimeoutError(TimeoutError):
+    """Raised by ``wait_for_monitor_run`` when a run has not ended in time.
+
+    ``run`` is the last state read. The run keeps going on the server.
+    """
+
+    def __init__(self, run: MonitorRun, timeout: float) -> None:
+        self.run = run
+        self.timeout = timeout
+        super().__init__(
+            f"Monitor run {run.run_id} is still {run.status} after {timeout:g} seconds"
+        )
+
+
 PeopleFiltersInput = Union[PeopleResultFilters, Dict[str, Any]]
+MonitorSourcesInput = List[Union[MonitorSource, str]]
+MonitorOptionsInput = Union[MonitorOptions, Dict[str, Any]]
+MonitorWebhookInput = Union[MonitorWebhookConfig, Dict[str, Any]]
 
 
 def _raise_without_chain(exc: BaseException) -> None:
@@ -3763,4 +3799,576 @@ class Desearch:
                 yield company
             cursor = page.next_cursor
             if not page.has_more or not page.results:
+                return
+
+
+    # ─── Monitors ────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _monitor_path(monitor_id: Union[str, UUID], suffix: str = "") -> str:
+        return f"/desearch/monitors/{quote(str(monitor_id), safe='')}{suffix}"
+
+    async def _monitor_call(
+        self,
+        method: str,
+        path: str,
+        model: Type[BaseModel],
+        include_metadata: bool,
+        **kwargs: Any,
+    ) -> Any:
+        url = f"{self.base_url}{path}"
+        result = await self._handle_request(
+            method, url, include_metadata=include_metadata, **kwargs
+        )
+        data, metadata = self._split_response(result, include_metadata)
+        return self._with_metadata(
+            model.model_validate(data), metadata, include_metadata
+        )
+
+    async def create_monitor(
+        self,
+        query: str,
+        name: Optional[str] = None,
+        criteria: Optional[List[str]] = None,
+        sources: Optional[MonitorSourcesInput] = None,
+        interval: Optional[Union[MonitorInterval, str]] = None,
+        options: Optional[MonitorOptionsInput] = None,
+        min_score: Optional[int] = None,
+        summary: Optional[bool] = None,
+        webhook: Optional[MonitorWebhookInput] = None,
+        metadata: Optional[Dict[str, str]] = None,
+        run_now: Optional[bool] = None,
+        *,
+        include_metadata: bool = False,
+    ) -> Union[Monitor, DesearchResponse[Monitor]]:
+        """
+        Create a monitor: a search that runs on a schedule and returns only what is new. Free.
+
+        Each run searches the monitor's ``sources`` inside a time window that
+        starts where the previous run ended, drops everything the monitor has
+        already seen, screens the rest with Jev against ``query`` and
+        ``criteria`` and keeps the items that score at least ``min_score``.
+        Kept items are readable with :meth:`list_monitor_items` and are sent to
+        ``webhook``.
+
+        Billing: creating, reading and changing monitors is free. Each run pays
+        its searches at their list price, Jev screening per item screened and,
+        with ``summary``, the summary's LLM usage plus 50%. A run's
+        ``max_run_cost_usd`` is held on the balance while it runs. See
+        https://desearch.ai/pricing.
+
+        Args:
+            query (str): What to watch, in plain words (3-500 characters). Each source is
+                searched with it.
+            name (Optional[str]): A label for the console and webhooks (at most 120 characters).
+            criteria (Optional[List[str]]): Up to 5 conditions an item must meet to be kept
+                (each at most 300 characters).
+            sources (Optional[List[Union[MonitorSource, str]]]): Any of ``web``, ``x``,
+                ``reddit``, ``youtube``, ``threads``. The API default is web and x.
+            interval (Optional[Union[MonitorInterval, str]]): ``1h``, ``3h``, ``6h``, ``12h``,
+                ``1d`` (the API default) or ``7d``.
+            options (Optional[Union[MonitorOptions, Dict[str, Any]]]): Per source:
+                ``web.count`` (10, 15 or 20), ``x.count`` (1-100), ``x.lang``, ``x.min_likes``.
+            min_score (Optional[int]): Relevance (0-100) an item needs to be kept (the API
+                default is 60).
+            summary (Optional[bool]): Write a short digest of the items each run keeps.
+            webhook (Optional[Union[MonitorWebhookConfig, Dict[str, Any]]]): ``url`` (HTTPS on
+                a public address) and ``events`` (see ``MonitorEvent``).
+            metadata (Optional[Dict[str, str]]): Your labels (at most 20 keys), echoed in webhooks.
+            run_now (Optional[bool]): Queue the first run at once (the API default is true).
+
+        Returns:
+            Monitor: The monitor. With a webhook, ``webhook_secret`` holds its signing secret;
+            it is not returned again.
+
+        Raises:
+            DesearchAPIError: 402 when the balance cannot hold one run, 409 when the account
+                already has 25 monitors.
+        """
+        request = MonitorCreateRequest.model_validate(
+            {
+                "query": query,
+                "name": name,
+                "criteria": criteria,
+                "sources": sources,
+                "interval": interval,
+                "options": options,
+                "min_score": min_score,
+                "summary": summary,
+                "webhook": webhook,
+                "metadata": metadata,
+                "run_now": run_now,
+            }
+        )
+        return await self._monitor_call(
+            "POST",
+            "/desearch/monitors",
+            Monitor,
+            include_metadata,
+            json=request.model_dump(exclude_none=True, mode="json"),
+        )
+
+    async def estimate_monitor(
+        self,
+        sources: Optional[MonitorSourcesInput] = None,
+        options: Optional[MonitorOptionsInput] = None,
+        summary: Optional[bool] = None,
+        interval: Optional[Union[MonitorInterval, str]] = None,
+        *,
+        include_metadata: bool = False,
+    ) -> Union[MonitorEstimate, DesearchResponse[MonitorEstimate]]:
+        """
+        The most one run of a monitor with these settings can cost, and the most a month of runs can cost. Free.
+
+        Args:
+            sources (Optional[List[Union[MonitorSource, str]]]): As in :meth:`create_monitor`.
+            options (Optional[Union[MonitorOptions, Dict[str, Any]]]): As in :meth:`create_monitor`.
+            summary (Optional[bool]): Whether runs write a summary.
+            interval (Optional[Union[MonitorInterval, str]]): How often it runs.
+
+        Returns:
+            MonitorEstimate: ``max_run_cost_usd``, ``runs_per_month``, ``max_monthly_cost_usd``
+            and ``breakdown``.
+        """
+        request = MonitorEstimateRequest.model_validate(
+            {
+                "sources": sources,
+                "options": options,
+                "summary": summary,
+                "interval": interval,
+            }
+        )
+        return await self._monitor_call(
+            "POST",
+            "/desearch/monitors/estimate",
+            MonitorEstimate,
+            include_metadata,
+            json=request.model_dump(exclude_none=True, mode="json"),
+        )
+
+    async def list_monitors(
+        self,
+        status: Optional[
+            Union[MonitorStatus, str, List[Union[MonitorStatus, str]]]
+        ] = None,
+        limit: Optional[int] = None,
+        cursor: Optional[str] = None,
+        *,
+        include_metadata: bool = False,
+    ) -> Union[MonitorList, DesearchResponse[MonitorList]]:
+        """
+        List your monitors, newest first. Free.
+
+        Args:
+            status (Optional[Union[MonitorStatus, str, List]]): ``active``, ``paused``, a list,
+                or a comma-separated string.
+            limit (Optional[int]): Page size (1-100; the API default is 20).
+            cursor (Optional[str]): ``next_cursor`` from the previous page.
+
+        Returns:
+            MonitorList: Monitors and the cursor for the next page (``None`` on the last page).
+        """
+        if isinstance(status, (list, tuple)):
+            status = ",".join(str(_enum_value(s)) for s in status)
+        params = {
+            k: v
+            for k, v in {
+                "status": _enum_value(status),
+                "limit": limit,
+                "cursor": cursor,
+            }.items()
+            if v is not None
+        }
+        return await self._monitor_call(
+            "GET", "/desearch/monitors", MonitorList, include_metadata, params=params
+        )
+
+    async def get_monitor(
+        self,
+        monitor_id: Union[str, UUID],
+        *,
+        include_metadata: bool = False,
+    ) -> Union[Monitor, DesearchResponse[Monitor]]:
+        """
+        Get a monitor's settings, status, last run and totals. Free.
+
+        Args:
+            monitor_id (Union[str, UUID]): The ``monitor_id`` returned by :meth:`create_monitor`.
+
+        Returns:
+            Monitor: The monitor.
+        """
+        return await self._monitor_call(
+            "GET", self._monitor_path(monitor_id), Monitor, include_metadata
+        )
+
+    async def update_monitor(
+        self,
+        monitor_id: Union[str, UUID],
+        *,
+        query: Optional[str] = None,
+        name: Optional[str] = None,
+        criteria: Optional[List[str]] = None,
+        sources: Optional[MonitorSourcesInput] = None,
+        interval: Optional[Union[MonitorInterval, str]] = None,
+        options: Optional[MonitorOptionsInput] = None,
+        min_score: Optional[int] = None,
+        summary: Optional[bool] = None,
+        status: Optional[Union[MonitorStatus, str]] = None,
+        webhook: Optional[MonitorWebhookInput] = None,
+        metadata: Optional[Dict[str, str]] = None,
+        remove_webhook: bool = False,
+        include_metadata: bool = False,
+    ) -> Union[Monitor, DesearchResponse[Monitor]]:
+        """
+        Change a monitor's settings. Free.
+
+        Only the arguments you pass are sent. ``status="paused"`` stops
+        scheduled runs (a manual :meth:`trigger_monitor` still works);
+        ``status="active"`` resumes them, also after a pause for credits or a
+        failing webhook. A new webhook URL gets a new signing secret, returned
+        as ``webhook_secret``.
+
+        Args:
+            monitor_id (Union[str, UUID]): The monitor.
+            query, name, criteria, sources, interval, options, min_score, summary, webhook,
+                metadata: As in :meth:`create_monitor`.
+            status (Optional[Union[MonitorStatus, str]]): ``active`` or ``paused``.
+            remove_webhook (bool): Remove the monitor's webhook (sends ``webhook: null``).
+
+        Returns:
+            Monitor: The monitor after the change.
+        """
+        if remove_webhook and webhook is not None:
+            raise ValueError("Pass either webhook or remove_webhook=True, not both")
+        request = MonitorUpdateRequest.model_validate(
+            {
+                "query": query,
+                "name": name,
+                "criteria": criteria,
+                "sources": sources,
+                "interval": interval,
+                "options": options,
+                "min_score": min_score,
+                "summary": summary,
+                "status": status,
+                "webhook": webhook,
+                "metadata": metadata,
+            }
+        )
+        body = request.model_dump(exclude_none=True, mode="json")
+        if remove_webhook:
+            body["webhook"] = None
+        return await self._monitor_call(
+            "PATCH", self._monitor_path(monitor_id), Monitor, include_metadata, json=body
+        )
+
+    async def pause_monitor(
+        self,
+        monitor_id: Union[str, UUID],
+        *,
+        include_metadata: bool = False,
+    ) -> Union[Monitor, DesearchResponse[Monitor]]:
+        """
+        Pause a monitor's scheduled runs (``update_monitor(status="paused")``). Free.
+
+        Items and runs stay readable, and :meth:`trigger_monitor` still works.
+
+        Args:
+            monitor_id (Union[str, UUID]): The monitor.
+
+        Returns:
+            Monitor: The monitor, ``status`` ``paused`` and ``paused_reason`` ``user``.
+        """
+        return await self.update_monitor(
+            monitor_id, status=MonitorStatus.PAUSED, include_metadata=include_metadata
+        )
+
+    async def resume_monitor(
+        self,
+        monitor_id: Union[str, UUID],
+        *,
+        include_metadata: bool = False,
+    ) -> Union[Monitor, DesearchResponse[Monitor]]:
+        """
+        Resume a paused monitor's scheduled runs (``update_monitor(status="active")``). Free.
+
+        Also resumes a monitor paused for ``insufficient_credits`` or
+        ``webhook_failing``.
+
+        Args:
+            monitor_id (Union[str, UUID]): The monitor.
+
+        Returns:
+            Monitor: The monitor, ``status`` ``active``.
+        """
+        return await self.update_monitor(
+            monitor_id, status=MonitorStatus.ACTIVE, include_metadata=include_metadata
+        )
+
+    async def delete_monitor(
+        self,
+        monitor_id: Union[str, UUID],
+        *,
+        include_metadata: bool = False,
+    ) -> Union[MonitorDeleted, DesearchResponse[MonitorDeleted]]:
+        """
+        Delete a monitor with its runs and items. Free.
+
+        Args:
+            monitor_id (Union[str, UUID]): The monitor.
+
+        Returns:
+            MonitorDeleted: ``monitor_id`` and ``deleted`` (true).
+        """
+        return await self._monitor_call(
+            "DELETE", self._monitor_path(monitor_id), MonitorDeleted, include_metadata
+        )
+
+    async def trigger_monitor(
+        self,
+        monitor_id: Union[str, UUID],
+        *,
+        include_metadata: bool = False,
+    ) -> Union[MonitorRun, DesearchResponse[MonitorRun]]:
+        """
+        Queue a run now, whatever the schedule and also when the monitor is paused.
+
+        The run searches from where the last completed run ended and is billed
+        like a scheduled run. Wait for it with :meth:`wait_for_monitor_run`.
+
+        Args:
+            monitor_id (Union[str, UUID]): The monitor.
+
+        Returns:
+            MonitorRun: The queued run.
+
+        Raises:
+            DesearchAPIError: 402 when the balance cannot hold one run, 409 when a run is
+                already queued or running.
+        """
+        return await self._monitor_call(
+            "POST",
+            self._monitor_path(monitor_id, "/trigger"),
+            MonitorRun,
+            include_metadata,
+        )
+
+    async def list_monitor_runs(
+        self,
+        monitor_id: Union[str, UUID],
+        limit: Optional[int] = None,
+        cursor: Optional[str] = None,
+        *,
+        include_metadata: bool = False,
+    ) -> Union[MonitorRunList, DesearchResponse[MonitorRunList]]:
+        """
+        List a monitor's runs, newest first, with what each source returned and the cost. Free.
+
+        Args:
+            monitor_id (Union[str, UUID]): The monitor.
+            limit (Optional[int]): Page size (1-100; the API default is 20).
+            cursor (Optional[str]): ``next_cursor`` from the previous page.
+
+        Returns:
+            MonitorRunList: Runs and the cursor for the next page (``None`` on the last page).
+        """
+        params = {
+            k: v for k, v in {"limit": limit, "cursor": cursor}.items() if v is not None
+        }
+        return await self._monitor_call(
+            "GET",
+            self._monitor_path(monitor_id, "/runs"),
+            MonitorRunList,
+            include_metadata,
+            params=params,
+        )
+
+    async def get_monitor_run(
+        self,
+        monitor_id: Union[str, UUID],
+        run_id: Union[str, UUID],
+        *,
+        include_metadata: bool = False,
+    ) -> Union[MonitorRunWithItems, DesearchResponse[MonitorRunWithItems]]:
+        """
+        Get one run with the items it kept, most relevant first. Free.
+
+        Args:
+            monitor_id (Union[str, UUID]): The monitor.
+            run_id (Union[str, UUID]): A ``run_id`` from the monitor's runs.
+
+        Returns:
+            MonitorRunWithItems: The run and its ``items``.
+        """
+        path = self._monitor_path(
+            monitor_id, f"/runs/{quote(str(run_id), safe='')}"
+        )
+        return await self._monitor_call(
+            "GET", path, MonitorRunWithItems, include_metadata
+        )
+
+    async def list_monitor_items(
+        self,
+        monitor_id: Union[str, UUID],
+        limit: Optional[int] = None,
+        cursor: Optional[str] = None,
+        source: Optional[Union[MonitorSource, str]] = None,
+        *,
+        include_metadata: bool = False,
+    ) -> Union[MonitorItemList, DesearchResponse[MonitorItemList]]:
+        """
+        List everything a monitor kept, newest first. Free.
+
+        Args:
+            monitor_id (Union[str, UUID]): The monitor.
+            limit (Optional[int]): Page size (1-200; the API default is 50).
+            cursor (Optional[str]): ``next_cursor`` from the previous page.
+            source (Optional[Union[MonitorSource, str]]): Only items from this source.
+
+        Returns:
+            MonitorItemList: Items and the cursor for the next page (``None`` on the last page).
+        """
+        params = {
+            k: v
+            for k, v in {
+                "limit": limit,
+                "cursor": cursor,
+                "source": _enum_value(source),
+            }.items()
+            if v is not None
+        }
+        return await self._monitor_call(
+            "GET",
+            self._monitor_path(monitor_id, "/items"),
+            MonitorItemList,
+            include_metadata,
+            params=params,
+        )
+
+    async def test_monitor_webhook(
+        self,
+        monitor_id: Union[str, UUID],
+        *,
+        include_metadata: bool = False,
+    ) -> Union[MonitorWebhookTest, DesearchResponse[MonitorWebhookTest]]:
+        """
+        Send a signed ``monitor.test`` event with one sample item to the monitor's webhook. Free.
+
+        Args:
+            monitor_id (Union[str, UUID]): The monitor.
+
+        Returns:
+            MonitorWebhookTest: ``delivered`` (a 2xx), ``status_code``, ``error`` and
+            ``duration_ms``.
+
+        Raises:
+            DesearchAPIError: 400 when the monitor has no webhook.
+        """
+        return await self._monitor_call(
+            "POST",
+            self._monitor_path(monitor_id, "/webhook/test"),
+            MonitorWebhookTest,
+            include_metadata,
+        )
+
+    async def rotate_monitor_webhook_secret(
+        self,
+        monitor_id: Union[str, UUID],
+        *,
+        include_metadata: bool = False,
+    ) -> Union[MonitorWebhookSecret, DesearchResponse[MonitorWebhookSecret]]:
+        """
+        Replace the monitor's webhook signing secret. Free.
+
+        Deliveries from now on are signed with the new secret, which is
+        returned only here.
+
+        Args:
+            monitor_id (Union[str, UUID]): The monitor.
+
+        Returns:
+            MonitorWebhookSecret: ``webhook_secret``.
+
+        Raises:
+            DesearchAPIError: 400 when the monitor has no webhook.
+        """
+        return await self._monitor_call(
+            "POST",
+            self._monitor_path(monitor_id, "/webhook/rotate-secret"),
+            MonitorWebhookSecret,
+            include_metadata,
+        )
+
+    async def wait_for_monitor_run(
+        self,
+        monitor_id: Union[str, UUID],
+        run_id: Union[str, UUID],
+        *,
+        poll_interval: float = 5.0,
+        timeout: Optional[float] = 600.0,
+    ) -> MonitorRunWithItems:
+        """
+        Poll a run until it ends (completed, failed or cancelled). Polling is free.
+
+        Args:
+            monitor_id (Union[str, UUID]): The monitor.
+            run_id (Union[str, UUID]): The run, e.g. ``trigger_monitor(...).run_id``.
+            poll_interval (float): Seconds between polls. Defaults to 5.
+            timeout (Optional[float]): Seconds to wait before raising
+                ``MonitorRunTimeoutError``. ``None`` waits without a limit. Defaults to 600.
+
+        Returns:
+            MonitorRunWithItems: The ended run with the items it kept.
+
+        Raises:
+            MonitorRunTimeoutError: The run had not ended in time. It keeps going.
+        """
+        loop = asyncio.get_running_loop()
+        started = loop.time()
+        while True:
+            run = cast(
+                MonitorRunWithItems, await self.get_monitor_run(monitor_id, run_id)
+            )
+            if run.is_finished:
+                return run
+            delay = poll_interval
+            if timeout is not None:
+                remaining = timeout - (loop.time() - started)
+                if remaining <= 0:
+                    raise MonitorRunTimeoutError(run, timeout)
+                delay = min(poll_interval, remaining)
+            await asyncio.sleep(delay)
+
+    async def iter_monitor_items(
+        self,
+        monitor_id: Union[str, UUID],
+        *,
+        source: Optional[Union[MonitorSource, str]] = None,
+        cursor: Optional[str] = None,
+        page_size: int = 50,
+    ) -> AsyncIterator[MonitorItem]:
+        """
+        Yield every item a monitor kept, newest first, following ``next_cursor`` page by page. Free.
+
+        Args:
+            monitor_id (Union[str, UUID]): The monitor.
+            source (Optional[Union[MonitorSource, str]]): Only items from this source.
+            cursor (Optional[str]): Start after this cursor instead of the newest item.
+            page_size (int): Items per request (1-200). Defaults to 50.
+
+        Yields:
+            MonitorItem: Each kept item, newest first.
+        """
+        while True:
+            page = cast(
+                MonitorItemList,
+                await self.list_monitor_items(
+                    monitor_id, limit=page_size, cursor=cursor, source=source
+                ),
+            )
+            for item in page.items:
+                yield item
+            cursor = page.next_cursor
+            if not cursor or not page.items:
                 return

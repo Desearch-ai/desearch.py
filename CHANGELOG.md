@@ -5,9 +5,46 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-> Note: the version in this repository is 1.11.0, but the latest release
+> Note: the version in this repository is 1.13.0, but the latest release
 > published on PyPI is 1.2.1. Versions 1.3.0 through 1.6.2 were never published
 > to PyPI and are not recorded individually here.
+
+## [1.13.0] - unreleased (not yet published to PyPI)
+
+> Waits for the Monitors API release (desearch-public-api#625 and #630, on
+> api-dev only). Until then the production API returns 404 for these routes.
+> 1.12.0 is the Company Search budget release (desearch.py#40); if this lands
+> first, ship it as 1.12.0 instead.
+
+### Added
+
+- **Monitors**: searches that run on a schedule over web, X, Reddit, YouTube
+  and Threads and keep only new items Jev screens as relevant.
+  `create_monitor`, `estimate_monitor`, `list_monitors`, `get_monitor`,
+  `update_monitor` (only the given fields are sent; `remove_webhook=True`
+  sends `webhook: null`), `pause_monitor`, `resume_monitor`,
+  `delete_monitor`, `trigger_monitor`, `list_monitor_runs`,
+  `get_monitor_run`, `list_monitor_items`, `test_monitor_webhook` and
+  `rotate_monitor_webhook_secret`. Every route is free; runs are billed.
+- `wait_for_monitor_run` (raises `MonitorRunTimeoutError`) and
+  `iter_monitor_items`, which follows `next_cursor`.
+- `verify_webhook_signature(secret, header, body)` in `desearch_py.webhooks`,
+  re-exported from the package root, with `SIGNATURE_HEADER` and
+  `DEFAULT_TOLERANCE_SECONDS`: checks `Desearch-Signature: t=<unix>,v1=<hex>`
+  (HMAC-SHA256 of `"<t>.<raw body>"` keyed with the `webhook_secret`),
+  rejects timestamps more than 5 minutes off and compares in constant time.
+- Models `Monitor`, `MonitorList`, `MonitorRun`, `MonitorRunWithItems`,
+  `MonitorRunList`, `MonitorItem`, `MonitorItemList`, `MonitorEstimate`,
+  `MonitorDeleted`, `MonitorWebhook`, `MonitorWebhookTest`,
+  `MonitorWebhookSecret`, `MonitorWebhookEvent` (a delivery body),
+  `MonitorWebhookMonitor`, `MonitorLastRun` and `MonitorStats`; request
+  models `MonitorCreateRequest`, `MonitorUpdateRequest`,
+  `MonitorEstimateRequest`, `MonitorOptions`, `MonitorWebOptions`,
+  `MonitorXOptions` and `MonitorWebhookConfig`; enums `MonitorSource`,
+  `MonitorInterval`, `MonitorEvent`, `MonitorStatus` and `MonitorRunStatus`;
+  and `MONITOR_RUN_ENDED_STATUSES`.
+- `scripts/e2e_monitors.py`, a live smoke test of every Monitors method
+  (`--base-url`, `--key-env`, `--with-run` for one billed run; not run by CI).
 
 ## [1.11.0] - unreleased (not yet published to PyPI)
 

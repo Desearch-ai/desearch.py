@@ -211,12 +211,34 @@ Company Search and Company Enrich run as background tasks on the People Search e
 | `score` (`None` for Company Enrich) | `CompanyScore`, with `criteria_checks` (`PeopleCriterionCheck`) and `unverified_criteria` | ✅ |
 | `found_by` | `CompanyFoundBy` | ✅ |
 
+## Monitors features
+
+A monitor reruns a search on a schedule and keeps only new items that Jev screens as relevant. Every route is free; each run is billed for its searches at list price, Jev screening per item screened, and the optional summary's LLM usage plus 50%.
+
+| Method | Endpoint | Status | Notes |
+|---|---|---|---|
+| `create_monitor` | `POST /desearch/monitors` | ✅ | `query`, `name`, `criteria`, `sources` (`MonitorSource`), `interval` (`MonitorInterval`), `options` (dict or `MonitorOptions`), `min_score`, `summary`, `webhook` (dict or `MonitorWebhookConfig`, `events` as `MonitorEvent`), `metadata`, `run_now`. Returns `Monitor`; `webhook_secret` only here. |
+| `estimate_monitor` | `POST /desearch/monitors/estimate` | ✅ | `sources`, `options`, `summary`, `interval`. Returns `MonitorEstimate`. |
+| `list_monitors` | `GET /desearch/monitors` | ✅ | `status` (list or comma string), `limit`, `cursor`. Returns `MonitorList` with `next_cursor`. |
+| `get_monitor` | `GET /desearch/monitors/{monitor_id}` | ✅ | Returns `Monitor` with `last_run` and `stats`. |
+| `update_monitor` | `PATCH /desearch/monitors/{monitor_id}` | ✅ | Sends only the given fields; `remove_webhook=True` sends `webhook: null`. `pause_monitor` / `resume_monitor` set `status`. |
+| `delete_monitor` | `DELETE /desearch/monitors/{monitor_id}` | ✅ | Returns `MonitorDeleted`. |
+| `trigger_monitor` | `POST /desearch/monitors/{monitor_id}/trigger` | ✅ | Returns the queued `MonitorRun`; HTTP 409 while a run is queued or running. |
+| `list_monitor_runs` | `GET /desearch/monitors/{monitor_id}/runs` | ✅ | `limit`, `cursor`. Returns `MonitorRunList`. |
+| `get_monitor_run` | `GET /desearch/monitors/{monitor_id}/runs/{run_id}` | ✅ | Returns `MonitorRunWithItems`. |
+| `list_monitor_items` | `GET /desearch/monitors/{monitor_id}/items` | ✅ | `limit`, `cursor`, `source`. Returns `MonitorItemList`, newest first. |
+| `test_monitor_webhook` | `POST /desearch/monitors/{monitor_id}/webhook/test` | ✅ | Returns `MonitorWebhookTest`. |
+| `rotate_monitor_webhook_secret` | `POST /desearch/monitors/{monitor_id}/webhook/rotate-secret` | ✅ | Returns `MonitorWebhookSecret`. |
+| `wait_for_monitor_run` | polls `GET .../runs/{run_id}` | ✅ | Defaults: every 5 s, 600 s timeout, then `MonitorRunTimeoutError`. |
+| `iter_monitor_items` | pages `GET .../items` | ✅ | Async iterator of `MonitorItem`; follows `next_cursor` until `None`. |
+| `verify_webhook_signature` | (local) | ✅ | `Desearch-Signature: t=<unix>,v1=<hex HMAC-SHA256 of "<t>.<raw body>">`, 5-minute tolerance, constant-time compare. |
+
 ## Models and exports
 
 | Surface | Status | Notes |
 |---|---|---|
-| Enums exported from package root | ✅ | `Tool`, `WebTool`, `DateFilter`, `ResultType`, `Sort`, `SearchApiMode`, `PeoplePlatform`, `PeopleTaskStatus`, `PeopleProfileSort`, `PeopleExportFormat`, `PeopleChannel`, `PeopleCompletionReason`, `PeopleCriterionVerdict`, `PeopleEnrichment`, `PeopleEnrichmentError`, `CompanyTaskType`, `CompanyRole`, `CompanyRequirement`, `CompanyCompletionReason`, `CompanyEmailStatus` are all re-exported. |
-| Response models exported from package root | ✅ | Core search, Search API, web, X, TikTok, Instagram, Facebook, YouTube, Reddit, Threads, network stats, People Search, Company Search, and error models are re-exported. |
+| Enums exported from package root | ✅ | `Tool`, `WebTool`, `DateFilter`, `ResultType`, `Sort`, `SearchApiMode`, `PeoplePlatform`, `PeopleTaskStatus`, `PeopleProfileSort`, `PeopleExportFormat`, `PeopleChannel`, `PeopleCompletionReason`, `PeopleCriterionVerdict`, `PeopleEnrichment`, `PeopleEnrichmentError`, `CompanyTaskType`, `CompanyRole`, `CompanyRequirement`, `CompanyCompletionReason`, `CompanyEmailStatus`, `MonitorSource`, `MonitorInterval`, `MonitorEvent`, `MonitorStatus`, `MonitorRunStatus` are all re-exported. |
+| Response models exported from package root | ✅ | Core search, Search API, web, X, TikTok, Instagram, Facebook, YouTube, Reddit, Threads, network stats, People Search, Company Search, Monitors, and error models are re-exported. |
 | Forward-compatible parsing | ✅ | Models use `ConfigDict(extra="allow")` to tolerate extra API fields. |
 | Strict schema enforcement | ❌ | The SDK intentionally does not reject unknown fields. |
 | Type marker file | ✅ | `desearch_py/py.typed` is included in package data. |

@@ -4,10 +4,11 @@ This document explains how the SDK is structured today, based on the checked-in 
 
 ## Overview
 
-`desearch-py` is a thin async wrapper over the Desearch HTTP API, including the task-based People Search and Company Search APIs, the paginated TikTok, Instagram, Facebook, YouTube, and Reddit routes, the Threads routes, and the public network stats stream. The codebase is intentionally small and split across three public-facing package files:
+`desearch-py` is a thin async wrapper over the Desearch HTTP API, including the task-based People Search and Company Search APIs, Monitors, the paginated TikTok, Instagram, Facebook, YouTube, and Reddit routes, the Threads routes, and the public network stats stream. The codebase is intentionally small and split across four public-facing package files:
 
 - `desearch_py/api.py` contains the async client and every endpoint method.
 - `desearch_py/models.py` contains enums plus permissive `pydantic` response models.
+- `desearch_py/webhooks.py` verifies Monitors webhook signatures.
 - `desearch_py/__init__.py` re-exports the supported public API.
 
 Supporting repo files matter too:
@@ -24,7 +25,8 @@ Supporting repo files matter too:
 │   ├── __init__.py
 │   ├── api.py
 │   ├── models.py
-│   └── py.typed
+│   ├── py.typed
+│   └── webhooks.py
 ├── docs/
 │   ├── architecture.md
 │   ├── features.md
@@ -150,12 +152,19 @@ Results fill in stage by stage after a company is published, so every field a la
 
 `wait_for_company_task()` and `iter_company_results()` work like their People Search counterparts and raise `CompanyTaskTimeoutError`; a 409 from pause, resume, or cancel raises `CompanyTaskConflictError` with the task as a `CompanyTask`. Both errors are separate classes from the People Search ones, so catching `PeopleTaskConflictError` does not catch a company conflict.
 
+### 9. Monitors are resources, not tasks
+
+Monitors live under `/desearch/monitors` and are long-lived resources with runs and items under them, so the SDK names its methods after the resource (`create_monitor`, `list_monitor_runs`, `list_monitor_items`) rather than the task verbs. Each method goes through one helper, `_monitor_call()`, that validates the response into its model and keeps `include_metadata` working. Request bodies are built from pydantic request models with `exclude_none`, so only the arguments a caller passes are sent; `update_monitor(remove_webhook=True)` is the one place that sends an explicit `null`. Lists return `{<items>, next_cursor}` with `next_cursor` `None` on the last page, and `iter_monitor_items()` follows it. `wait_for_monitor_run()` polls like `wait_for_company_task()` and raises `MonitorRunTimeoutError`.
+
+`desearch_py/webhooks.py` holds `verify_webhook_signature()`. It has no network code and does not need a client, so it is a module function: it parses `t=` and every `v1=` from the header, checks the timestamp against a 5-minute tolerance, signs `"<t>.<raw body>"` with the secret as given (`whsec_…` included) and compares each candidate with `hmac.compare_digest`.
+
 ## Public API boundary
 
 `desearch_py/__init__.py` is the package boundary for consumers. It re-exports:
 
 - `Desearch`
-- `DesearchAPIError`, plus the People Search errors `PeopleTaskConflictError` and `PeopleTaskTimeoutError` and the Company Search errors `CompanyTaskConflictError` and `CompanyTaskTimeoutError`
+- `DesearchAPIError`, plus the People Search errors `PeopleTaskConflictError` and `PeopleTaskTimeoutError` the Company Search errors `CompanyTaskConflictError` and `CompanyTaskTimeoutError`, and the Monitors error `MonitorRunTimeoutError`
+- `verify_webhook_signature`, `SIGNATURE_HEADER`, and `DEFAULT_TOLERANCE_SECONDS`
 - enums such as `Tool`, `WebTool`, `DateFilter`, `ResultType`, `Sort`
 - response models
 - response metadata wrapper models
@@ -196,7 +205,7 @@ That means contributors should treat the checked source code and Markdown docs a
 The current implementation does **not** include:
 
 - built-in retries or backoff
-- automatic pagination helpers outside People Search and Company Search results (`iter_people_results`, `iter_company_results`); social list methods return one page and expose the cursor
+- automatic pagination helpers outside People Search and Company Search results and Monitors items (`iter_people_results`, `iter_company_results`, `iter_monitor_items`); social list methods return one page and expose the cursor
 - streaming AI search responses (the only streaming method is `stream_network_stats`)
 - sync client support
 - lint infrastructure inside this repo

@@ -222,6 +222,67 @@ class CompanyEmailStatus(str, Enum):
     UNKNOWN = "unknown"
 
 
+class MonitorSource(str, Enum):
+    """Where a monitor looks (``sources``). The API default is ``WEB`` and ``X``."""
+
+    WEB = "web"
+    X = "x"
+    REDDIT = "reddit"
+    YOUTUBE = "youtube"
+    THREADS = "threads"
+
+
+class MonitorInterval(str, Enum):
+    """How often a monitor runs (``interval``). The API default is ``ONE_DAY``."""
+
+    ONE_HOUR = "1h"
+    THREE_HOURS = "3h"
+    SIX_HOURS = "6h"
+    TWELVE_HOURS = "12h"
+    ONE_DAY = "1d"
+    SEVEN_DAYS = "7d"
+
+
+class MonitorEvent(str, Enum):
+    """Webhook events (``webhook.events``). The API default is ``ITEMS_FOUND`` and ``RUN_FAILED``.
+
+    ``ITEMS_FOUND``: a run kept at least one item. ``RUN_COMPLETED``: every
+    completed run. ``RUN_FAILED``: a run failed. Test deliveries from
+    ``test_monitor_webhook`` have type ``monitor.test``.
+    """
+
+    ITEMS_FOUND = "monitor.items.found"
+    RUN_COMPLETED = "monitor.run.completed"
+    RUN_FAILED = "monitor.run.failed"
+
+
+class MonitorStatus(str, Enum):
+    """``Monitor.status``. A paused monitor has no scheduled runs; a manual trigger still works."""
+
+    ACTIVE = "active"
+    PAUSED = "paused"
+
+
+class MonitorRunStatus(str, Enum):
+    """``MonitorRun.status``."""
+
+    QUEUED = "queued"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+# Statuses after which a monitor run never changes again.
+MONITOR_RUN_ENDED_STATUSES = frozenset(
+    {
+        MonitorRunStatus.COMPLETED.value,
+        MonitorRunStatus.FAILED.value,
+        MonitorRunStatus.CANCELLED.value,
+    }
+)
+
+
 # ─── Twitter / X Models ──────────────────────────────────────────────────────
 
 
@@ -2112,6 +2173,361 @@ class CompanyResultsPage(BaseModel):
     results: List[Company]
     next_cursor: str
     has_more: bool
+
+
+# ─── Monitors Request Models ─────────────────────────────────────────────────
+#
+# Bodies for POST /desearch/monitors, PATCH /desearch/monitors/{monitor_id} and
+# POST /desearch/monitors/estimate. The API validates ranges (query 3-500
+# characters, at most 5 criteria of 300 characters, min_score 0-100, web.count
+# 10/15/20, x.count 1-100, at most 20 metadata keys of 64 characters with string
+# values of at most 500) and that the webhook URL is HTTPS on a public address;
+# it returns 400 or 422 otherwise.
+
+
+class MonitorWebOptions(BaseModel):
+    """``count``: pages read per run, 10, 15 or 20 (the API default is 10)."""
+
+    model_config = ConfigDict(extra="allow")
+
+    count: Optional[int] = None
+
+
+class MonitorXOptions(BaseModel):
+    """``count``: newest posts read per run, 1-100 (the API default is 20).
+    ``lang``: only posts in this language, e.g. ``en``. ``min_likes``: only
+    posts with at least this many likes."""
+
+    model_config = ConfigDict(extra="allow")
+
+    count: Optional[int] = None
+    lang: Optional[str] = None
+    min_likes: Optional[int] = None
+
+
+class MonitorOptions(BaseModel):
+    """Per-source settings. ``reddit``, ``youtube`` and ``threads`` have none yet."""
+
+    model_config = ConfigDict(extra="allow")
+
+    web: Optional[MonitorWebOptions] = None
+    x: Optional[MonitorXOptions] = None
+
+
+class MonitorWebhookConfig(BaseModel):
+    """Where a monitor sends new items. ``url`` must be HTTPS on a public
+    address; redirects are not followed. ``events`` defaults to
+    ``monitor.items.found`` and ``monitor.run.failed`` (see ``MonitorEvent``)."""
+
+    model_config = ConfigDict(extra="allow")
+
+    url: str
+    events: Optional[List[str]] = None
+
+    @field_validator("events", mode="before")
+    @classmethod
+    def _events_values(cls, value: Any) -> Any:
+        return _enum_values(value)
+
+
+class MonitorCreateRequest(BaseModel):
+    """Create a monitor: a search that runs on a schedule and keeps only what is new."""
+
+    model_config = ConfigDict(extra="allow")
+
+    query: str
+    name: Optional[str] = None
+    criteria: Optional[List[str]] = None
+    sources: Optional[List[str]] = None
+    interval: Optional[str] = None
+    options: Optional[MonitorOptions] = None
+    min_score: Optional[int] = None
+    summary: Optional[bool] = None
+    webhook: Optional[MonitorWebhookConfig] = None
+    metadata: Optional[Dict[str, str]] = None
+    run_now: Optional[bool] = None
+
+    @field_validator("sources", mode="before")
+    @classmethod
+    def _sources_values(cls, value: Any) -> Any:
+        return _enum_values(value)
+
+    @field_validator("interval", mode="before")
+    @classmethod
+    def _interval_value(cls, value: Any) -> Any:
+        return _enum_value(value)
+
+
+class MonitorUpdateRequest(BaseModel):
+    """Change a monitor. Every field is optional; only the ones set are sent."""
+
+    model_config = ConfigDict(extra="allow")
+
+    query: Optional[str] = None
+    name: Optional[str] = None
+    criteria: Optional[List[str]] = None
+    sources: Optional[List[str]] = None
+    interval: Optional[str] = None
+    options: Optional[MonitorOptions] = None
+    min_score: Optional[int] = None
+    summary: Optional[bool] = None
+    status: Optional[str] = None
+    webhook: Optional[MonitorWebhookConfig] = None
+    metadata: Optional[Dict[str, str]] = None
+
+    @field_validator("sources", mode="before")
+    @classmethod
+    def _sources_values(cls, value: Any) -> Any:
+        return _enum_values(value)
+
+    @field_validator("interval", "status", mode="before")
+    @classmethod
+    def _single_values(cls, value: Any) -> Any:
+        return _enum_value(value)
+
+
+class MonitorEstimateRequest(BaseModel):
+    """What one run (and a month of runs) of a monitor with these settings can cost at most."""
+
+    model_config = ConfigDict(extra="allow")
+
+    sources: Optional[List[str]] = None
+    options: Optional[MonitorOptions] = None
+    summary: Optional[bool] = None
+    interval: Optional[str] = None
+
+    @field_validator("sources", mode="before")
+    @classmethod
+    def _sources_values(cls, value: Any) -> Any:
+        return _enum_values(value)
+
+    @field_validator("interval", mode="before")
+    @classmethod
+    def _interval_value(cls, value: Any) -> Any:
+        return _enum_value(value)
+
+
+# ─── Monitors Response Models ────────────────────────────────────────────────
+#
+# Timestamps are ISO 8601 strings and amounts are USD. Every model keeps extra
+# fields so a newer API does not break older clients.
+
+
+class MonitorWebhook(BaseModel):
+    """A monitor's webhook. ``consecutive_failures`` counts deliveries in a row
+    that failed every attempt; at 5 the monitor pauses with ``paused_reason``
+    ``webhook_failing``."""
+
+    model_config = ConfigDict(extra="allow")
+
+    url: str
+    events: List[str] = Field(default_factory=list)
+    consecutive_failures: int = 0
+
+
+class MonitorLastRun(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    run_id: str
+    status: str
+    item_count: int = 0
+    cost_usd: Optional[float] = None
+    fail_reason: Optional[str] = None
+    created_at: Optional[str] = None
+    finished_at: Optional[str] = None
+
+
+class MonitorStats(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    runs: int = 0
+    items: int = 0
+    spent_usd: float = 0.0
+
+
+class Monitor(BaseModel):
+    """A monitor. ``status`` is ``active`` or ``paused``; ``paused_reason`` is
+    ``None``, ``user``, ``insufficient_credits`` or ``webhook_failing``.
+    ``max_run_cost_usd`` is the most one run can cost (held on the balance
+    while it runs). ``webhook_secret`` (``whsec_…``) is set only on the
+    response of create (with a webhook), of an update that changes the webhook
+    URL, and of :meth:`Desearch.rotate_monitor_webhook_secret`; keep it to
+    verify deliveries with :func:`desearch_py.verify_webhook_signature`."""
+
+    model_config = ConfigDict(extra="allow")
+
+    monitor_id: str
+    name: Optional[str] = None
+    query: str
+    criteria: List[str] = Field(default_factory=list)
+    sources: List[str] = Field(default_factory=list)
+    interval: str
+    options: Dict[str, Any] = Field(default_factory=dict)
+    min_score: int
+    summary: bool = False
+    status: str
+    paused_reason: Optional[str] = None
+    webhook: Optional[MonitorWebhook] = None
+    metadata: Dict[str, str] = Field(default_factory=dict)
+    max_run_cost_usd: float
+    next_run_at: Optional[str] = None
+    last_run: Optional[MonitorLastRun] = None
+    stats: MonitorStats = Field(default_factory=MonitorStats)
+    created_at: str
+    updated_at: str
+    webhook_secret: Optional[str] = None
+
+
+class MonitorList(BaseModel):
+    """One page of monitors, newest first. ``next_cursor`` is ``None`` on the last page."""
+
+    model_config = ConfigDict(extra="allow")
+
+    monitors: List[Monitor]
+    next_cursor: Optional[str] = None
+
+
+class MonitorItem(BaseModel):
+    """An item a monitor kept. ``score`` (0-100) is the lowest of ``relevant``
+    and the criteria; ``signals`` holds ``relevant`` and ``new_info`` (0-1).
+    ``data`` holds source fields: X ``likes``, ``reposts``, ``replies``,
+    ``views``; Reddit ``subreddit``, ``score``, ``comments``; YouTube
+    ``channel``, ``views``, ``thumbnail``; web ``highlights``, ``domain``."""
+
+    model_config = ConfigDict(extra="allow")
+
+    item_id: str
+    run_id: Optional[str] = None
+    source: str
+    url: Optional[str] = None
+    title: Optional[str] = None
+    text: Optional[str] = None
+    author: Optional[Dict[str, Any]] = None
+    published_at: Optional[str] = None
+    score: Optional[int] = None
+    signals: Dict[str, Any] = Field(default_factory=dict)
+    found_at: str
+    data: Dict[str, Any] = Field(default_factory=dict)
+
+
+class MonitorRun(BaseModel):
+    """One run of a monitor. ``trigger`` is ``schedule`` or ``manual``.
+    ``fail_reason`` is ``None``, ``insufficient_credits``,
+    ``all_sources_failed``, ``worker_lost`` or ``internal_error``.
+    ``stats.sources`` counts per source what was ``fetched``, ``in_window``,
+    ``new`` and ``passed``; ``stats.screen`` is ``jev`` or ``keyword`` (the
+    fallback). ``reserved_usd`` is the hold and ``cost_usd`` what the run was
+    billed (``None`` until it is billed)."""
+
+    model_config = ConfigDict(extra="allow")
+
+    run_id: str
+    monitor_id: str
+    trigger: str
+    status: str
+    fail_reason: Optional[str] = None
+    window_start: Optional[str] = None
+    window_end: Optional[str] = None
+    item_count: int = 0
+    stats: Dict[str, Any] = Field(default_factory=dict)
+    summary: Optional[str] = None
+    reserved_usd: Optional[float] = None
+    cost_usd: Optional[float] = None
+    created_at: str
+    started_at: Optional[str] = None
+    finished_at: Optional[str] = None
+
+    @property
+    def is_finished(self) -> bool:
+        """True once the run has ended (completed, failed or cancelled)."""
+        return self.status in MONITOR_RUN_ENDED_STATUSES
+
+
+class MonitorRunWithItems(MonitorRun):
+    """A run with the items it kept, most relevant first."""
+
+    items: List[MonitorItem] = Field(default_factory=list)
+
+
+class MonitorRunList(BaseModel):
+    """One page of runs, newest first. ``next_cursor`` is ``None`` on the last page."""
+
+    model_config = ConfigDict(extra="allow")
+
+    runs: List[MonitorRun]
+    next_cursor: Optional[str] = None
+
+
+class MonitorItemList(BaseModel):
+    """One page of items, newest first. ``next_cursor`` is ``None`` on the last page."""
+
+    model_config = ConfigDict(extra="allow")
+
+    items: List[MonitorItem]
+    next_cursor: Optional[str] = None
+
+
+class MonitorEstimate(BaseModel):
+    """The most one run can cost, runs per month at the interval, and the most
+    a month can cost. ``breakdown`` is the most each part of a run can cost."""
+
+    model_config = ConfigDict(extra="allow")
+
+    max_run_cost_usd: float
+    runs_per_month: int
+    max_monthly_cost_usd: float
+    breakdown: Dict[str, float] = Field(default_factory=dict)
+
+
+class MonitorDeleted(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    monitor_id: str
+    deleted: bool
+
+
+class MonitorWebhookTest(BaseModel):
+    """What the monitor's webhook answered a signed ``monitor.test`` event.
+    ``delivered`` means a 2xx."""
+
+    model_config = ConfigDict(extra="allow")
+
+    delivered: bool
+    status_code: Optional[int] = None
+    error: Optional[str] = None
+    duration_ms: int = 0
+
+
+class MonitorWebhookSecret(BaseModel):
+    """The new signing secret, returned once."""
+
+    model_config = ConfigDict(extra="allow")
+
+    webhook_secret: str
+
+
+class MonitorWebhookMonitor(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    monitor_id: str
+    name: Optional[str] = None
+    metadata: Dict[str, str] = Field(default_factory=dict)
+
+
+class MonitorWebhookEvent(BaseModel):
+    """The JSON body of a webhook delivery. ``type`` is a ``MonitorEvent``
+    value or ``monitor.test``; ``run`` is ``None`` on test events. Verify the
+    ``Desearch-Signature`` header with :func:`desearch_py.verify_webhook_signature`
+    before trusting it."""
+
+    model_config = ConfigDict(extra="allow")
+
+    id: str
+    type: str
+    created_at: Optional[str] = None
+    monitor: MonitorWebhookMonitor
+    run: Optional[MonitorRun] = None
+    items: List[MonitorItem] = Field(default_factory=list)
 
 
 # ─── Error Response Models ────────────────────────────────────────────────────
