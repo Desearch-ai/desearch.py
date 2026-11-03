@@ -12,7 +12,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.13.0] - unreleased (not yet published to PyPI)
 
 > Waits for the Monitors API release (desearch-public-api#625 and #630, on
-> api-dev only). Until then the production API returns 404 for these routes.
+> api-dev only, plus #635 and its console migration for TikTok and watched
+> accounts). Until then the production API returns 404 for these routes.
 > 1.12.0 is the Company Search budget release (desearch.py#40); if this lands
 > first, ship it as 1.12.0 instead.
 
@@ -26,6 +27,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `delete_monitor`, `trigger_monitor`, `list_monitor_runs`,
   `get_monitor_run`, `list_monitor_items`, `test_monitor_webhook` and
   `rotate_monitor_webhook_secret`. Every route is free; runs are billed.
+- TikTok as a monitor source (`MonitorSource.TIKTOK`, `options.tiktok.count`)
+  and watched accounts, read instead of searching: `options.x.accounts`,
+  `options.reddit.subreddits`, `options.youtube.channels` and
+  `options.tiktok.accounts` (`MonitorXOptions`, `MonitorRedditOptions`,
+  `MonitorYouTubeOptions`, `MonitorTikTokOptions`; at most 10 each).
+- `tiktok_search(..., date_posted=...)` with the enum `TikTokDatePosted`
+  (`yesterday`, `this-week`, `this-month`, `last-3-months`, `last-6-months`,
+  `all-time`).
 - `wait_for_monitor_run` (raises `MonitorRunTimeoutError`) and
   `iter_monitor_items`, which follows `next_cursor`.
 - `verify_webhook_signature(secret, header, body)` in `desearch_py.webhooks`,
@@ -40,11 +49,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `MonitorWebhookMonitor`, `MonitorLastRun` and `MonitorStats`; request
   models `MonitorCreateRequest`, `MonitorUpdateRequest`,
   `MonitorEstimateRequest`, `MonitorOptions`, `MonitorWebOptions`,
-  `MonitorXOptions` and `MonitorWebhookConfig`; enums `MonitorSource`,
+  `MonitorXOptions`, `MonitorRedditOptions`, `MonitorYouTubeOptions`,
+  `MonitorTikTokOptions` and `MonitorWebhookConfig`; enums `MonitorSource`,
   `MonitorInterval`, `MonitorEvent`, `MonitorStatus` and `MonitorRunStatus`;
   and `MONITOR_RUN_ENDED_STATUSES`.
 - `scripts/e2e_monitors.py`, a live smoke test of every Monitors method
-  (`--base-url`, `--key-env`, `--with-run` for one billed run; not run by CI).
+  (`--base-url`, `--key-env`, `--with-run` for one billed run, `--with-accounts`
+  for TikTok and watched accounts; not run by CI).
 
 ## [1.11.0] - unreleased (not yet published to PyPI)
 

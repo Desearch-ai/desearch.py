@@ -4,14 +4,16 @@
 Creates one monitor without running it, calls every free Monitors method on
 it, and deletes it. With ``--with-run`` it also triggers one run, waits for
 it and reads its items (billed: an X search of 5 posts plus Jev screening,
-about $0.002-0.01). Prints one line per call: ``PASS name`` or
+about $0.002-0.01). With ``--with-accounts`` it also creates a free TikTok
+monitor that watches accounts on every source (desearch-public-api#635) and
+checks the names come back cleaned. Prints one line per call: ``PASS name`` or
 ``FAIL name: error``. Exits 1 if any call fails, 2 if the API key is not set.
 
 Usage::
 
     DESEARCH_API_KEY=... python scripts/e2e_monitors.py
     python scripts/e2e_monitors.py --base-url https://api-dev.desearch.ai \\
-        --key-env DESEARCH_DEV_API_KEY --with-run
+        --key-env DESEARCH_DEV_API_KEY --with-run --with-accounts
 
 The key is read from the environment variable named by ``--key-env``
 (default ``DESEARCH_API_KEY``), or from ``~/.config/desearch/e2e.env``. The
@@ -317,6 +319,72 @@ async def run_monitors(run: SmokeRun, with_run: bool) -> None:
         )
 
 
+WATCHED = {
+    "x": {"accounts": ["@OpenAI", "https://x.com/AnthropicAI"]},
+    "reddit": {"subreddits": ["r/LocalLLaMA"]},
+    "youtube": {"channels": ["https://www.youtube.com/@OpenAI"]},
+    "tiktok": {"count": 10, "accounts": ["@openai"]},
+}
+CLEANED = {
+    "x": ["OpenAI", "AnthropicAI"],
+    "reddit": ["LocalLLaMA"],
+    "youtube": ["@OpenAI"],
+    "tiktok": ["openai"],
+}
+
+
+async def run_watched_accounts(run: SmokeRun) -> None:
+    client = run.client
+    sources = ["x", "reddit", "youtube", "tiktok"]
+
+    await run.call(
+        "estimate_monitor watched accounts",
+        lambda: client.estimate_monitor(sources=sources, options=WATCHED),
+        lambda e: (
+            _expect(e.max_run_cost_usd > 0, "max_run_cost_usd is 0"),
+            _expect("tiktok" in e.breakdown, f"no tiktok in breakdown {e.breakdown}"),
+            f"max run ${e.max_run_cost_usd} {e.breakdown}",
+        )[-1],
+    )
+    await run.expect_status(
+        "create_monitor bad account name",
+        lambda: client.create_monitor(
+            QUERY, sources=["x"], options={"x": {"accounts": ["not a name!"]}}, run_now=False
+        ),
+        422,
+    )
+
+    def check(monitor: Monitor) -> str:
+        _expect(monitor.sources == sources, f"sources {monitor.sources}")
+        got = {
+            "x": monitor.options["x"]["accounts"],
+            "reddit": monitor.options["reddit"]["subreddits"],
+            "youtube": monitor.options["youtube"]["channels"],
+            "tiktok": monitor.options["tiktok"]["accounts"],
+        }
+        _expect(got == CLEANED, f"names {got}")
+        return "names cleaned"
+
+    monitor = await run.call(
+        "create_monitor watched accounts",
+        lambda: client.create_monitor(
+            "Model and API launches",
+            name="desearch-py e2e accounts",
+            sources=sources,
+            options=WATCHED,
+            min_score=0,
+            run_now=False,
+        ),
+        check,
+    )
+    if monitor is not None:
+        await run.call(
+            "delete_monitor watched accounts",
+            lambda: client.delete_monitor(monitor.monitor_id),
+            lambda result: (_expect(result.deleted, "not deleted"), "deleted")[-1],
+        )
+
+
 async def _collect(iterator: Any) -> list:
     return [item async for item in iterator]
 
@@ -338,6 +406,11 @@ async def main() -> int:
         action="store_true",
         help="also trigger one billed run and read its items",
     )
+    parser.add_argument(
+        "--with-accounts",
+        action="store_true",
+        help="also check TikTok and watched accounts (needs desearch-public-api#635)",
+    )
     args = parser.parse_args()
 
     _load_env_file()
@@ -349,6 +422,8 @@ async def main() -> int:
     async with Desearch(api_key=api_key, base_url=args.base_url) as client:
         run = SmokeRun(client)
         await run_monitors(run, args.with_run)
+        if args.with_accounts:
+            await run_watched_accounts(run)
 
     print(f"{run.failures} failure(s) on {args.base_url}", flush=True)
     return 1 if run.failures else 0

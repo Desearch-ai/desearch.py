@@ -100,7 +100,7 @@ List methods return one page. `count` is a maximum (1-100). With `include_metada
 
 | Method | Endpoint | Status | Notes |
 |---|---|---|---|
-| `tiktok_search` | `POST /desearch/tiktok/search` | ✅ | `query`, `count`, `cursor`, `sort`. `List[TikTokPost]`. |
+| `tiktok_search` | `POST /desearch/tiktok/search` | ✅ | `query`, `count`, `cursor`, `sort`, `date_posted` (`TikTokDatePosted`). `List[TikTokPost]`. |
 | `tiktok_post_by_id` | `GET /desearch/tiktok/post/{id}` | ✅ | `TikTokPost`. |
 | `tiktok_profile` | `GET /desearch/tiktok/profile/{username}` | ✅ | `TikTokProfile`. |
 | `tiktok_profile_posts` | `GET /desearch/tiktok/profile/{username}/posts` | ✅ | `count`, `cursor`. `List[TikTokPost]`. |
@@ -213,11 +213,11 @@ Company Search and Company Enrich run as background tasks on the People Search e
 
 ## Monitors features
 
-A monitor reruns a search on a schedule and keeps only new items that Jev screens as relevant. Every route is free; each run is billed for its searches at list price, Jev screening per item screened, and the optional summary's LLM usage plus 50%.
+A monitor reruns a search (or reads up to 10 watched accounts per source) over web, X, Reddit, YouTube, Threads, and TikTok on a schedule and keeps only new items that Jev screens as relevant. Every route is free; each run is billed for its searches at list price, Jev screening per item screened, and the optional summary's LLM usage plus 50%.
 
 | Method | Endpoint | Status | Notes |
 |---|---|---|---|
-| `create_monitor` | `POST /desearch/monitors` | ✅ | `query`, `name`, `criteria`, `sources` (`MonitorSource`), `interval` (`MonitorInterval`), `options` (dict or `MonitorOptions`), `min_score`, `summary`, `webhook` (dict or `MonitorWebhookConfig`, `events` as `MonitorEvent`), `metadata`, `run_now`. Returns `Monitor`; `webhook_secret` only here. |
+| `create_monitor` | `POST /desearch/monitors` | ✅ | `query`, `name`, `criteria`, `sources` (`MonitorSource`), `interval` (`MonitorInterval`), `options` (dict or `MonitorOptions`, including watched accounts `x.accounts`, `reddit.subreddits`, `youtube.channels`, `tiktok.accounts`), `min_score`, `summary`, `webhook` (dict or `MonitorWebhookConfig`, `events` as `MonitorEvent`), `metadata`, `run_now`. Returns `Monitor`; `webhook_secret` only here. |
 | `estimate_monitor` | `POST /desearch/monitors/estimate` | ✅ | `sources`, `options`, `summary`, `interval`. Returns `MonitorEstimate`. |
 | `list_monitors` | `GET /desearch/monitors` | ✅ | `status` (list or comma string), `limit`, `cursor`. Returns `MonitorList` with `next_cursor`. |
 | `get_monitor` | `GET /desearch/monitors/{monitor_id}` | ✅ | Returns `Monitor` with `last_run` and `stats`. |
@@ -237,7 +237,7 @@ A monitor reruns a search on a schedule and keeps only new items that Jev screen
 
 | Surface | Status | Notes |
 |---|---|---|
-| Enums exported from package root | ✅ | `Tool`, `WebTool`, `DateFilter`, `ResultType`, `Sort`, `SearchApiMode`, `PeoplePlatform`, `PeopleTaskStatus`, `PeopleProfileSort`, `PeopleExportFormat`, `PeopleChannel`, `PeopleCompletionReason`, `PeopleCriterionVerdict`, `PeopleEnrichment`, `PeopleEnrichmentError`, `CompanyTaskType`, `CompanyRole`, `CompanyRequirement`, `CompanyCompletionReason`, `CompanyEmailStatus`, `MonitorSource`, `MonitorInterval`, `MonitorEvent`, `MonitorStatus`, `MonitorRunStatus` are all re-exported. |
+| Enums exported from package root | ✅ | `Tool`, `WebTool`, `DateFilter`, `ResultType`, `Sort`, `SearchApiMode`, `PeoplePlatform`, `PeopleTaskStatus`, `PeopleProfileSort`, `PeopleExportFormat`, `PeopleChannel`, `PeopleCompletionReason`, `PeopleCriterionVerdict`, `PeopleEnrichment`, `PeopleEnrichmentError`, `CompanyTaskType`, `CompanyRole`, `CompanyRequirement`, `CompanyCompletionReason`, `CompanyEmailStatus`, `MonitorSource`, `MonitorInterval`, `MonitorEvent`, `MonitorStatus`, `MonitorRunStatus`, `TikTokDatePosted` are all re-exported. |
 | Response models exported from package root | ✅ | Core search, Search API, web, X, TikTok, Instagram, Facebook, YouTube, Reddit, Threads, network stats, People Search, Company Search, Monitors, and error models are re-exported. |
 | Forward-compatible parsing | ✅ | Models use `ConfigDict(extra="allow")` to tolerate extra API fields. |
 | Strict schema enforcement | ❌ | The SDK intentionally does not reject unknown fields. |

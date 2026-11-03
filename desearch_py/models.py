@@ -39,6 +39,18 @@ class DateFilter(str, Enum):
     PAST_2_YEARS = "PAST_2_YEARS"
 
 
+class TikTokDatePosted(str, Enum):
+    """``date_posted`` of ``tiktok_search``: only videos posted in this time frame.
+    ``YESTERDAY`` is the last 24 hours."""
+
+    YESTERDAY = "yesterday"
+    THIS_WEEK = "this-week"
+    THIS_MONTH = "this-month"
+    LAST_3_MONTHS = "last-3-months"
+    LAST_6_MONTHS = "last-6-months"
+    ALL_TIME = "all-time"
+
+
 class ResultType(str, Enum):
     ONLY_LINKS = "ONLY_LINKS"
     LINKS_WITH_FINAL_SUMMARY = "LINKS_WITH_FINAL_SUMMARY"
@@ -230,6 +242,7 @@ class MonitorSource(str, Enum):
     REDDIT = "reddit"
     YOUTUBE = "youtube"
     THREADS = "threads"
+    TIKTOK = "tiktok"
 
 
 class MonitorInterval(str, Enum):
@@ -2181,8 +2194,9 @@ class CompanyResultsPage(BaseModel):
 # POST /desearch/monitors/estimate. The API validates ranges (query 3-500
 # characters, at most 5 criteria of 300 characters, min_score 0-100, web.count
 # 10/15/20, x.count 1-100, at most 20 metadata keys of 64 characters with string
-# values of at most 500) and that the webhook URL is HTTPS on a public address;
-# it returns 400 or 422 otherwise.
+# values of at most 500, at most 10 watched accounts per source with valid names)
+# and that the webhook URL is HTTPS on a public address; it returns 400 or 422
+# otherwise.
 
 
 class MonitorWebOptions(BaseModel):
@@ -2196,22 +2210,70 @@ class MonitorWebOptions(BaseModel):
 class MonitorXOptions(BaseModel):
     """``count``: newest posts read per run, 1-100 (the API default is 20).
     ``lang``: only posts in this language, e.g. ``en``. ``min_likes``: only
-    posts with at least this many likes."""
+    posts with at least this many likes. ``accounts``: up to 10 X usernames
+    to watch (``OpenAI``, ``@OpenAI`` or a profile URL); each run then reads
+    every account's timeline (20 posts, so ``count`` is not used) instead of
+    searching, and ``lang`` and ``min_likes`` filter it. The API returns the
+    names cleaned (``OpenAI``)."""
 
     model_config = ConfigDict(extra="allow")
 
     count: Optional[int] = None
     lang: Optional[str] = None
     min_likes: Optional[int] = None
+    accounts: Optional[List[str]] = None
+
+
+class MonitorRedditOptions(BaseModel):
+    """``subreddits``: up to 10 subreddits to watch (``LocalLLaMA``,
+    ``r/LocalLLaMA`` or a URL); each run then reads their newest posts instead
+    of searching. The API returns the names cleaned (``LocalLLaMA``)."""
+
+    model_config = ConfigDict(extra="allow")
+
+    subreddits: Optional[List[str]] = None
+
+
+class MonitorYouTubeOptions(BaseModel):
+    """``channels``: up to 10 channels to watch (``@handle``, a ``UC…`` channel
+    ID or a channel URL); each run then reads their latest videos instead of
+    searching. The API keeps a handle as ``@handle`` and an ID as is."""
+
+    model_config = ConfigDict(extra="allow")
+
+    channels: Optional[List[str]] = None
+
+
+class MonitorTikTokOptions(BaseModel):
+    """``count``: posts read per run, 10, 20 or 30 (the API default is 10; per
+    account with ``accounts``). ``accounts``: up to 10 TikTok usernames to
+    watch (``openai``, ``@openai`` or a profile URL); each run then reads
+    every profile's newest posts instead of searching by keyword. The API
+    returns the names cleaned (``openai``)."""
+
+    model_config = ConfigDict(extra="allow")
+
+    count: Optional[int] = None
+    accounts: Optional[List[str]] = None
 
 
 class MonitorOptions(BaseModel):
-    """Per-source settings. ``reddit``, ``youtube`` and ``threads`` have none yet."""
+    """Per-source settings. ``threads`` has none yet.
+
+    With watched accounts (``x.accounts``, ``reddit.subreddits``,
+    ``youtube.channels``, ``tiktok.accounts``) a source reads those accounts
+    instead of searching. The ``query`` and ``criteria`` still decide what is
+    kept; ``min_score=0`` keeps every new post. An account that cannot be read
+    is listed in the run's ``stats["sources"][<source>]["accounts_failed"]``.
+    """
 
     model_config = ConfigDict(extra="allow")
 
     web: Optional[MonitorWebOptions] = None
     x: Optional[MonitorXOptions] = None
+    reddit: Optional[MonitorRedditOptions] = None
+    youtube: Optional[MonitorYouTubeOptions] = None
+    tiktok: Optional[MonitorTikTokOptions] = None
 
 
 class MonitorWebhookConfig(BaseModel):
@@ -2392,7 +2454,10 @@ class MonitorItem(BaseModel):
     and the criteria; ``signals`` holds ``relevant`` and ``new_info`` (0-1).
     ``data`` holds source fields: X ``likes``, ``reposts``, ``replies``,
     ``views``; Reddit ``subreddit``, ``score``, ``comments``; YouTube
-    ``channel``, ``views``, ``thumbnail``; web ``highlights``, ``domain``."""
+    ``channel``, ``views``, ``thumbnail``; TikTok ``views``, ``likes``,
+    ``comments``, ``shares``, ``duration_s``, ``thumbnail`` (TikTok thumbnail
+    URLs expire); web ``highlights``, ``domain``. An item read from a watched
+    account also has ``account``, the name it was watched as."""
 
     model_config = ConfigDict(extra="allow")
 
@@ -2415,7 +2480,8 @@ class MonitorRun(BaseModel):
     ``fail_reason`` is ``None``, ``insufficient_credits``,
     ``all_sources_failed``, ``worker_lost`` or ``internal_error``.
     ``stats.sources`` counts per source what was ``fetched``, ``in_window``,
-    ``new`` and ``passed``; ``stats.screen`` is ``jev`` or ``keyword`` (the
+    ``new`` and ``passed``, with ``accounts_failed`` listing watched accounts
+    that could not be read; ``stats.screen`` is ``jev`` or ``keyword`` (the
     fallback). ``reserved_usd`` is the hold and ``cost_usd`` what the run was
     billed (``None`` until it is billed)."""
 

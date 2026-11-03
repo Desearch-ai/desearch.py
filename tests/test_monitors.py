@@ -27,6 +27,7 @@ from desearch_py import (
     MonitorRunWithItems,
     MonitorSource,
     MonitorStatus,
+    MonitorOptions,
     MonitorWebhookEvent,
     MonitorWebhookSecret,
     MonitorWebhookTest,
@@ -247,6 +248,81 @@ class MonitorCrudTests(_ClientTestCase):
                 self.assertEqual(caught.exception.status, status)
                 self.assertIn(detail, caught.exception.body)
 
+    async def test_create_sends_tiktok_and_watched_accounts(self):
+        options = {
+            "x": {"accounts": ["@OpenAI", "https://x.com/AnthropicAI"], "min_likes": 10},
+            "reddit": {"subreddits": ["r/LocalLLaMA"]},
+            "youtube": {"channels": ["@OpenAI", "UCXZCJLdBC09xxGZ6gcdrc6A"]},
+            "tiktok": {"count": 20, "accounts": ["@openai"]},
+        }
+        cleaned = {
+            "x": {"count": 20, "lang": None, "min_likes": 10, "accounts": ["OpenAI", "AnthropicAI"]},
+            "reddit": {"subreddits": ["LocalLLaMA"]},
+            "youtube": {"channels": ["@OpenAI", "UCXZCJLdBC09xxGZ6gcdrc6A"]},
+            "tiktok": {"count": 20, "accounts": ["openai"]},
+        }
+        body = _monitor(sources=["x", "reddit", "youtube", "tiktok"], options=cleaned, min_score=0)
+        client = self.make_client(FakeResponse(json_data=body, status=201))
+        monitor = await client.create_monitor(
+            QUERY,
+            sources=[MonitorSource.X, "reddit", "youtube", MonitorSource.TIKTOK],
+            options=options,
+            min_score=0,
+        )
+        self.assertEqual(monitor.sources[-1], "tiktok")
+        self.assertEqual(monitor.options["x"]["accounts"], ["OpenAI", "AnthropicAI"])
+        self.assertEqual(monitor.options["tiktok"], {"count": 20, "accounts": ["openai"]})
+        self.assertEqual(
+            self.request(client)[2]["json"],
+            {
+                "query": QUERY,
+                "sources": ["x", "reddit", "youtube", "tiktok"],
+                "options": options,
+                "min_score": 0,
+            },
+        )
+
+    def test_typed_options_carry_every_source(self):
+        options = MonitorOptions.model_validate(
+            {
+                "x": {"accounts": ["OpenAI"]},
+                "reddit": {"subreddits": ["LocalLLaMA"]},
+                "youtube": {"channels": ["@OpenAI"]},
+                "tiktok": {"count": 30, "accounts": ["openai"]},
+                "threads": {},
+            }
+        )
+        self.assertEqual(options.x.accounts, ["OpenAI"])
+        self.assertEqual(options.reddit.subreddits, ["LocalLLaMA"])
+        self.assertEqual(options.youtube.channels, ["@OpenAI"])
+        self.assertEqual((options.tiktok.count, options.tiktok.accounts), (30, ["openai"]))
+        self.assertEqual(
+            options.model_dump(exclude_none=True),
+            {
+                "x": {"accounts": ["OpenAI"]},
+                "reddit": {"subreddits": ["LocalLLaMA"]},
+                "youtube": {"channels": ["@OpenAI"]},
+                "tiktok": {"count": 30, "accounts": ["openai"]},
+                "threads": {},
+            },
+        )
+
+    async def test_bad_account_names_are_the_api_422(self):
+        body = {
+            "detail": [
+                {
+                    "loc": ["body", "options", "x", "accounts"],
+                    "msg": "Value error, 'not a name!' is not an X username",
+                    "type": "value_error",
+                }
+            ]
+        }
+        client = self.make_client(FakeResponse(json_data=body, status=422, reason="Unprocessable Entity"))
+        with self.assertRaises(DesearchAPIError) as caught:
+            await client.create_monitor(QUERY, options={"x": {"accounts": ["not a name!"]}})
+        self.assertEqual(caught.exception.status, 422)
+        self.assertIn("is not an X username", caught.exception.body)
+
     async def test_estimate_posts_its_settings(self):
         estimate = {
             "max_run_cost_usd": 0.0098,
@@ -369,7 +445,9 @@ class MonitorCrudTests(_ClientTestCase):
         self.assertEqual(item.model_extra["rank"], 1)
 
     def test_enums_match_the_api_values(self):
-        self.assertEqual([s.value for s in MonitorSource], ["web", "x", "reddit", "youtube", "threads"])
+        self.assertEqual(
+            [s.value for s in MonitorSource], ["web", "x", "reddit", "youtube", "threads", "tiktok"]
+        )
         self.assertEqual([i.value for i in MonitorInterval], ["1h", "3h", "6h", "12h", "1d", "7d"])
         self.assertEqual(
             [e.value for e in MonitorEvent],
@@ -426,6 +504,21 @@ class MonitorRunTests(_ClientTestCase):
         self.assertEqual(run.items[0].data["likes"], 120)
         self.assertEqual(self.request(client)[0:2], ("GET", f"{BASE}/runs/{RUN_ID}"))
 
+    async def test_run_stats_list_accounts_that_failed(self):
+        stats = {
+            "sources": {
+                "x": {"fetched": 40, "in_window": 12, "new": 12, "passed": 3, "error": None, "accounts_failed": ["gone_account"]},
+                "tiktok": {"fetched": 0, "in_window": 0, "new": 0, "passed": 0, "error": "all accounts failed", "accounts_failed": ["private1"]},
+            },
+            "screened": 12,
+            "passed": 3,
+            "screen": "jev",
+        }
+        client = self.make_client(FakeResponse(json_data=_run(stats=stats, items=[])))
+        run = await client.get_monitor_run(MONITOR_ID, RUN_ID)
+        self.assertEqual(run.stats["sources"]["x"]["accounts_failed"], ["gone_account"])
+        self.assertEqual(run.stats["sources"]["tiktok"]["error"], "all accounts failed")
+
     async def test_wait_polls_until_the_run_ends(self):
         client = self.make_client(
             FakeResponse(json_data=_run("queued", items=[])),
@@ -459,6 +552,29 @@ class MonitorItemTests(_ClientTestCase):
         method, url, kwargs = self.request(client)
         self.assertEqual((method, url), ("GET", f"{BASE}/items"))
         self.assertEqual(kwargs["params"], {"limit": 1, "cursor": "1900", "source": "x"})
+
+    async def test_items_from_watched_accounts_and_tiktok_keep_their_data(self):
+        tiktok = _item(
+            "1900",
+            source="tiktok",
+            url="https://www.tiktok.com/@openai/video/7570000000000000000",
+            data={
+                "account": "openai",
+                "views": 12000,
+                "likes": 800,
+                "comments": 31,
+                "shares": 12,
+                "duration_s": 42,
+                "thumbnail": "https://p16-sign.tiktokcdn.com/thumb.jpeg",
+            },
+        )
+        reddit = _item("1899", source="reddit", data={"account": "LocalLLaMA", "subreddit": "LocalLLaMA", "score": 50, "comments": 7})
+        client = self.make_client(FakeResponse(json_data={"items": [tiktok, reddit], "next_cursor": None}))
+        page = await client.list_monitor_items(MONITOR_ID, source=MonitorSource.TIKTOK)
+        self.assertEqual(page.items[0].data["account"], "openai")
+        self.assertEqual(page.items[0].data["duration_s"], 42)
+        self.assertEqual(page.items[1].data["account"], "LocalLLaMA")
+        self.assertEqual(self.request(client)[2]["params"], {"source": "tiktok"})
 
     async def test_iter_items_follows_cursors_until_the_last_page(self):
         client = self.make_client(
