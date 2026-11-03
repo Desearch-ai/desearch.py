@@ -7,6 +7,11 @@ on:
       - main
   # publish.yml calls this workflow so a failing suite blocks the PyPI upload.
   workflow_call:
+    inputs:
+      ref:
+        description: Git ref to test; empty tests the commit that started the run.
+        type: string
+        default: ''
 
 permissions:
   contents: read
@@ -23,6 +28,8 @@ jobs:
     steps:
     - name: Check out the code
       uses: actions/checkout@v4
+      with:
+        ref: ${{ inputs.ref }}
 
     - name: Set up Python
       uses: actions/setup-python@v5

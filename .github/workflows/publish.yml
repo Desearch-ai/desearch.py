@@ -4,19 +4,36 @@ on:
   push:
     tags:
       - 'v*'
+  # Publishes a tag that is already pushed, e.g. after a failed upload. The run
+  # uses this workflow from the branch it is started on, but builds the tag.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Tag to publish, e.g. v1.11.0
+        required: true
+        type: string
+
+permissions:
+  contents: read
 
 jobs:
   test:
     uses: ./.github/workflows/test.yml
+    with:
+      ref: refs/tags/${{ inputs.tag || github.ref_name }}
 
   build:
     needs: test
     runs-on: ubuntu-latest
-    environment: prod
+    env:
+      TAG_NAME: ${{ inputs.tag || github.ref_name }}
 
     steps:
     - name: Check out the code
       uses: actions/checkout@v4
+      with:
+        ref: refs/tags/${{ env.TAG_NAME }}
+        persist-credentials: false
 
     - name: Set up Python
       uses: actions/setup-python@v5
@@ -24,8 +41,6 @@ jobs:
         python-version: '3.x'  # Specify your Python version
 
     - name: Verify tag matches package version
-      env:
-        TAG_NAME: ${{ github.ref_name }}
       run: |
         python3 - <<'PY'
         import os
@@ -60,10 +75,35 @@ jobs:
         python -m pip install --upgrade pip
         pip install setuptools wheel twine
 
-    - name: Build and publish
-      env:
-        TWINE_USERNAME: ${{ secrets.PYPI_USERNAME }}
-        TWINE_PASSWORD: ${{ secrets.PYPI_PASSWORD }}
+    - name: Build
       run: |
         python setup.py sdist bdist_wheel
-        twine upload dist/*
+        twine check dist/*
+
+    - name: Upload distribution packages
+      uses: actions/upload-artifact@v4
+      with:
+        name: dist
+        path: dist/
+
+  # Trusted publishing: PyPI accepts this job's OIDC token instead of an API
+  # token. The publisher registered on PyPI must name this repository,
+  # publish.yml and the prod environment. Only this job gets id-token: write,
+  # so the build steps never hold the token.
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: prod
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+    - name: Download distribution packages
+      uses: actions/download-artifact@v4
+      with:
+        name: dist
+        path: dist/
+
+    - name: Publish to PyPI
+      uses: pypa/gh-action-pypi-publish@release/v1
