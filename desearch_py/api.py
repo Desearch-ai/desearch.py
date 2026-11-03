@@ -51,7 +51,6 @@ from .models import (
     SearchApiMode,
     SearchApiResponse,
     TikTokComment,
-    TikTokDatePosted,
     TikTokPost,
     TikTokProfile,
     ThreadsPost,
@@ -1341,7 +1340,6 @@ class Desearch:
         count: Optional[int] = None,
         cursor: Optional[str] = None,
         sort: Optional[str] = None,
-        date_posted: Optional[Union[TikTokDatePosted, str]] = None,
         *,
         include_metadata: bool = False,
     ) -> Union[
@@ -1362,9 +1360,6 @@ class Desearch:
             cursor (Optional[str]): ``next_cursor`` from the previous page's metadata,
                 sent back unchanged with the same ``query`` and ``sort``. Omit it for the first page.
             sort (Optional[str]): Sort option, when the provider supports it.
-            date_posted (Optional[Union[TikTokDatePosted, str]]): Only videos posted in this
-                time frame: ``yesterday`` (the last 24 hours), ``this-week``, ``this-month``,
-                ``last-3-months``, ``last-6-months`` or ``all-time``.
 
         Returns:
             Union[List[TikTokPost], Dict[str, Any]]: One page of posts, or the raw body when it is not a list.
@@ -1377,7 +1372,6 @@ class Desearch:
                 "count": count,
                 "cursor": cursor,
                 "sort": sort,
-                "date_posted": _enum_value(date_posted),
             }.items()
             if v is not None
         }

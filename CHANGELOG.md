@@ -31,10 +31,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and watched accounts, read instead of searching: `options.x.accounts`,
   `options.reddit.subreddits`, `options.youtube.channels` and
   `options.tiktok.accounts` (`MonitorXOptions`, `MonitorRedditOptions`,
-  `MonitorYouTubeOptions`, `MonitorTikTokOptions`; at most 10 each).
-- `tiktok_search(..., date_posted=...)` with the enum `TikTokDatePosted`
-  (`yesterday`, `this-week`, `this-month`, `last-3-months`, `last-6-months`,
-  `all-time`).
+  `MonitorYouTubeOptions`, `MonitorTikTokOptions`; at most 10 each). A TikTok
+  keyword monitor finds a new video only when it reaches TikTok's top results;
+  to follow creators, watch their accounts.
 - `wait_for_monitor_run` (raises `MonitorRunTimeoutError`) and
   `iter_monitor_items`, which follows `next_cursor`.
 - `verify_webhook_signature(secret, header, body)` in `desearch_py.webhooks`,

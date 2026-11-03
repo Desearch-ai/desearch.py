@@ -100,7 +100,7 @@ List methods return one page. `count` is a maximum (1-100). With `include_metada
 
 | Method | Endpoint | Status | Notes |
 |---|---|---|---|
-| `tiktok_search` | `POST /desearch/tiktok/search` | ✅ | `query`, `count`, `cursor`, `sort`, `date_posted` (`TikTokDatePosted`). `List[TikTokPost]`. |
+| `tiktok_search` | `POST /desearch/tiktok/search` | ✅ | `query`, `count`, `cursor`, `sort`. `List[TikTokPost]`. |
 | `tiktok_post_by_id` | `GET /desearch/tiktok/post/{id}` | ✅ | `TikTokPost`. |
 | `tiktok_profile` | `GET /desearch/tiktok/profile/{username}` | ✅ | `TikTokProfile`. |
 | `tiktok_profile_posts` | `GET /desearch/tiktok/profile/{username}/posts` | ✅ | `count`, `cursor`. `List[TikTokPost]`. |
@@ -237,7 +237,7 @@ A monitor reruns a search (or reads up to 10 watched accounts per source) over w
 
 | Surface | Status | Notes |
 |---|---|---|
-| Enums exported from package root | ✅ | `Tool`, `WebTool`, `DateFilter`, `ResultType`, `Sort`, `SearchApiMode`, `PeoplePlatform`, `PeopleTaskStatus`, `PeopleProfileSort`, `PeopleExportFormat`, `PeopleChannel`, `PeopleCompletionReason`, `PeopleCriterionVerdict`, `PeopleEnrichment`, `PeopleEnrichmentError`, `CompanyTaskType`, `CompanyRole`, `CompanyRequirement`, `CompanyCompletionReason`, `CompanyEmailStatus`, `MonitorSource`, `MonitorInterval`, `MonitorEvent`, `MonitorStatus`, `MonitorRunStatus`, `TikTokDatePosted` are all re-exported. |
+| Enums exported from package root | ✅ | `Tool`, `WebTool`, `DateFilter`, `ResultType`, `Sort`, `SearchApiMode`, `PeoplePlatform`, `PeopleTaskStatus`, `PeopleProfileSort`, `PeopleExportFormat`, `PeopleChannel`, `PeopleCompletionReason`, `PeopleCriterionVerdict`, `PeopleEnrichment`, `PeopleEnrichmentError`, `CompanyTaskType`, `CompanyRole`, `CompanyRequirement`, `CompanyCompletionReason`, `CompanyEmailStatus`, `MonitorSource`, `MonitorInterval`, `MonitorEvent`, `MonitorStatus`, `MonitorRunStatus` are all re-exported. |
 | Response models exported from package root | ✅ | Core search, Search API, web, X, TikTok, Instagram, Facebook, YouTube, Reddit, Threads, network stats, People Search, Company Search, Monitors, and error models are re-exported. |
 | Forward-compatible parsing | ✅ | Models use `ConfigDict(extra="allow")` to tolerate extra API fields. |
 | Strict schema enforcement | ❌ | The SDK intentionally does not reject unknown fields. |

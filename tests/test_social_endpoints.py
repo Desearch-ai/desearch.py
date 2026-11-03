@@ -13,7 +13,6 @@ from typing import Any, List, cast
 from aiohttp import web
 
 from desearch_py import (
-    TikTokDatePosted,
     Desearch,
     DesearchAPIError,
     DesearchCostMetadata,
@@ -135,23 +134,11 @@ INSTAGRAM_SEARCH_RESULT = {
 CASES = (
     (
         "tiktok_search",
-        {
-            "query": "bittensor",
-            "count": 3,
-            "cursor": CURSOR,
-            "sort": "latest",
-            "date_posted": TikTokDatePosted.THIS_WEEK,
-        },
+        {"query": "bittensor", "count": 3, "cursor": CURSOR, "sort": "latest"},
         "POST",
         "/desearch/tiktok/search",
         None,
-        {
-            "query": "bittensor",
-            "count": 3,
-            "cursor": CURSOR,
-            "sort": "latest",
-            "date_posted": "this-week",
-        },
+        {"query": "bittensor", "count": 3, "cursor": CURSOR, "sort": "latest"},
         [TIKTOK_POST],
         TikTokPost,
         True,

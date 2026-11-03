@@ -39,18 +39,6 @@ class DateFilter(str, Enum):
     PAST_2_YEARS = "PAST_2_YEARS"
 
 
-class TikTokDatePosted(str, Enum):
-    """``date_posted`` of ``tiktok_search``: only videos posted in this time frame.
-    ``YESTERDAY`` is the last 24 hours."""
-
-    YESTERDAY = "yesterday"
-    THIS_WEEK = "this-week"
-    THIS_MONTH = "this-month"
-    LAST_3_MONTHS = "last-3-months"
-    LAST_6_MONTHS = "last-6-months"
-    ALL_TIME = "all-time"
-
-
 class ResultType(str, Enum):
     ONLY_LINKS = "ONLY_LINKS"
     LINKS_WITH_FINAL_SUMMARY = "LINKS_WITH_FINAL_SUMMARY"
@@ -2249,7 +2237,10 @@ class MonitorTikTokOptions(BaseModel):
     account with ``accounts``). ``accounts``: up to 10 TikTok usernames to
     watch (``openai``, ``@openai`` or a profile URL); each run then reads
     every profile's newest posts instead of searching by keyword. The API
-    returns the names cleaned (``openai``)."""
+    returns the names cleaned (``openai``). TikTok search has no working date
+    filter and ranks by relevance, so a keyword monitor finds a new video only
+    when it reaches TikTok's top results; to follow creators, watch their
+    accounts."""
 
     model_config = ConfigDict(extra="allow")
 
