@@ -5,9 +5,41 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-> Note: the version in this repository is 1.11.0, but the latest release
+> Note: the version in this repository is 1.12.0, but the latest release
 > published on PyPI is 1.2.1. Versions 1.3.0 through 1.6.2 were never published
 > to PyPI and are not recorded individually here.
+
+## [1.12.0] - unreleased (not yet published to PyPI)
+
+> Waits for the Company Search API release that adds `max_cost_usd` and
+> `continue_from` (desearch-public-api#624). Until then the API rejects a
+> request that sends either one with HTTP 422; requests without them work as
+> before.
+
+### Added
+
+- `company_search(..., max_cost_usd=...)`: a search budget in USD (above 0, at
+  most 100, at least what `count` reserves at the route price; the API returns
+  422 below that). Without it, a search stops once it costs more than the
+  companies it found pay for (`completion_reason` `cost_limit`,
+  `coverage_limited`). With it, the whole budget is reserved, the search keeps
+  going until it delivers `count` or spends the budget, and its search effort
+  is billed where the companies delivered do not cover it, up to the budget,
+  even when it finds few companies or none. The unused budget is returned.
+- `company_search(..., continue_from=...)`: the `task_id` (string or `UUID`)
+  of an ended Company Search of the same account. The new search leaves out
+  every company that one delivered, held for review or excluded. The API
+  returns 409 while that task is running or paused, and 404 if it is not the
+  caller's Company Search.
+- Both are keyword-only, sent only when given, and fields of
+  `CompanySearchRequest`.
+- Documented the task fields that come with them: `progress["effort_units"]`
+  (budgeted searches only), `request.max_cost_usd` and
+  `request.continue_from`. Also documented a query that names the only
+  companies wanted with their websites: it checks only those domains
+  (`interpreted["interpretation"]["only_domains"]`) and ends with
+  `completion_reason` `all_domains_processed`, or gets the warning
+  `scope_not_applied` when it names them without their websites.
 
 ## [1.11.0] - unreleased (not yet published to PyPI)
 

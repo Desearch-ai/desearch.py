@@ -2,7 +2,7 @@
 
 > Status key: ✅ working · ⚠️ degraded · ❌ broken · 🚧 in progress
 
-This inventory is derived from the current source in `desearch_py/api.py`, `desearch_py/models.py`, `pyproject.toml`, and `setup.py`. Current package version: **1.11.0**.
+This inventory is derived from the current source in `desearch_py/api.py`, `desearch_py/models.py`, `pyproject.toml`, and `setup.py`. Current package version: **1.12.0**.
 
 ## Overview
 
@@ -189,7 +189,7 @@ Company Search and Company Enrich run as background tasks on the People Search e
 
 | Method | Endpoint | Status | Notes |
 |---|---|---|---|
-| `company_search` | `POST /desearch/companies/search` | ✅ | `query`, `count`, `min_score`, `exclude`, `roles` (`CompanyRole`), `infer_emails`, `verify_emails`, typed `CompanySearchFilters` (`countries`, `require`) or a dict, `metadata`. Optional `Idempotency-Key`. Returns `CompanyTask`. |
+| `company_search` | `POST /desearch/companies/search` | ✅ | `query`, `count`, `min_score`, `exclude`, `roles` (`CompanyRole`), `infer_emails`, `verify_emails`, typed `CompanySearchFilters` (`countries`, `require`) or a dict, `metadata`, and keyword-only `max_cost_usd` (search budget) and `continue_from` (an ended search's `task_id`), sent only when given. Optional `Idempotency-Key`. Returns `CompanyTask`. |
 | `company_enrich` | `POST /desearch/companies/enrich` | ✅ | `domains` (1-200 domains or URLs), `roles`, `infer_emails`, `verify_emails`, `metadata`. Optional `Idempotency-Key`. Returns `CompanyTask`. |
 | `list_company_tasks` | `GET /desearch/companies/tasks` | ✅ | `type` (`search` or `enrich`), `status` (list or comma string), `limit`, `cursor`, and a `metadata` filter sent as `metadata.<key>=<value>` params. |
 | `get_company_task` | `GET /desearch/companies/tasks/{task_id}` | ✅ | Returns `CompanyTask`, with `stage` (`enriching` while published companies are filled in), `progress`, `completion_reason` (`CompanyCompletionReason`), `coverage_limited`, and `warnings` (`CompanyTaskWarning`). |
@@ -225,9 +225,9 @@ Company Search and Company Enrich run as background tasks on the People Search e
 
 | Surface | Status | Notes |
 |---|---|---|
-| Poetry metadata in `pyproject.toml` | ✅ | Declares package name `desearch-py`, version `1.11.0`, and runtime deps. |
+| Poetry metadata in `pyproject.toml` | ✅ | Declares package name `desearch-py`, version `1.12.0`, and runtime deps. |
 | setuptools metadata in `setup.py` | ✅ | Declares import package `desearch_py` and package data; reads the version from `desearch_py.__version__`. |
-| Version parity between Poetry and setuptools | ✅ | `desearch_py.__version__` (`1.11.0`) is the source of truth; `tests/test_version_consistency.py` checks `pyproject.toml` and `setup.py` match it. |
+| Version parity between Poetry and setuptools | ✅ | `desearch_py.__version__` (`1.12.0`) is the source of truth; `tests/test_version_consistency.py` checks `pyproject.toml` and `setup.py` match it. |
 | Sphinx source files | ✅ | `docs/conf.py`, `docs/index.rst`, `docs/endpoints.rst` (the social, Search API, and network stats methods), `docs/Makefile`, and `docs/make.bat` are present. |
 | Sphinx branding correctness | ❌ | `docs/conf.py` and generated `docs/_build/` still carry legacy `datura-py` / `Leva` metadata. |
 
