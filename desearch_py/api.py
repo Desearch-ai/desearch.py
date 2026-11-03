@@ -4026,8 +4026,10 @@ class Desearch:
         Only the arguments you pass are sent. ``status="paused"`` stops
         scheduled runs (a manual :meth:`trigger_monitor` still works);
         ``status="active"`` resumes them, also after a pause for credits or a
-        failing webhook. A new webhook URL gets a new signing secret, returned
-        as ``webhook_secret``.
+        failing webhook. ``options`` and ``webhook`` replace the current value
+        as a whole (a ``webhook`` without ``events`` gets the default events),
+        so read the monitor first to change one part of them. A new webhook URL
+        gets a new signing secret, returned as ``webhook_secret``.
 
         Args:
             monitor_id (Union[str, UUID]): The monitor.
