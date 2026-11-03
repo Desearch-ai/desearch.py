@@ -6,7 +6,9 @@ it, and deletes it. With ``--with-run`` it also triggers one run, waits for
 it and reads its items (billed: an X search of 5 posts plus Jev screening,
 about $0.002-0.01). With ``--with-accounts`` it also creates a free TikTok
 monitor that watches accounts on every source (desearch-public-api#635) and
-checks the names come back cleaned. Prints one line per call: ``PASS name`` or
+checks the names come back cleaned; with both flags it also runs that monitor
+once (billed, about $0.03-0.06) and checks every item names the account it was
+read from. Prints one line per call: ``PASS name`` or
 ``FAIL name: error``. Exits 1 if any call fails, 2 if the API key is not set.
 
 Usage::
@@ -333,7 +335,10 @@ CLEANED = {
 }
 
 
-async def run_watched_accounts(run: SmokeRun) -> None:
+TIKTOK_FIELDS = ("views", "likes", "comments", "shares", "duration_s", "thumbnail")
+
+
+async def run_watched_accounts(run: SmokeRun, with_run: bool) -> None:
     client = run.client
     sources = ["x", "reddit", "youtube", "tiktok"]
 
@@ -377,12 +382,62 @@ async def run_watched_accounts(run: SmokeRun) -> None:
         ),
         check,
     )
-    if monitor is not None:
+    if monitor is None:
+        return
+    try:
+        if with_run:
+            await _run_watched(run, monitor.monitor_id)
+    finally:
         await run.call(
             "delete_monitor watched accounts",
             lambda: client.delete_monitor(monitor.monitor_id),
             lambda result: (_expect(result.deleted, "not deleted"), "deleted")[-1],
         )
+
+
+async def _run_watched(run: SmokeRun, monitor_id: str) -> None:
+    client = run.client
+    queued = await run.call(
+        "trigger_monitor watched accounts",
+        lambda: client.trigger_monitor(monitor_id),
+        lambda r: r.status,
+    )
+    if queued is None:
+        return
+
+    def check_run(r: MonitorRunWithItems) -> str:
+        _expect(r.status == "completed", f"{r.status} {r.fail_reason}")
+        sources = r.stats.get("sources") or {}
+        for source in CLEANED:
+            _expect(source in sources, f"no stats for {source}")
+            _expect(not sources[source].get("error"), f"{source}: {sources[source]['error']}")
+            _expect(not sources[source].get("accounts_failed"), f"{source}: {sources[source]}")
+        return f"{r.item_count} items, ${r.cost_usd}"
+
+    ended = await run.call(
+        "wait_for_monitor_run watched accounts",
+        lambda: client.wait_for_monitor_run(monitor_id, queued.run_id, poll_interval=5, timeout=480),
+        check_run,
+    )
+    if ended is None:
+        return
+
+    def check_items(items: list) -> str:
+        _expect(len(items) == ended.item_count, f"{len(items)} != {ended.item_count}")
+        for item in items:
+            account = item.data.get("account")
+            _expect(account in CLEANED[item.source], f"{item.source} item account {account!r}")
+            if item.source == "tiktok":
+                missing = [field for field in TIKTOK_FIELDS if field not in item.data]
+                _expect(not missing, f"TikTok item without {missing}")
+        by_source = sorted({item.source for item in items})
+        return f"{len(items)} items from {', '.join(by_source) or 'no source'}"
+
+    await run.call(
+        "iter_monitor_items watched accounts",
+        lambda: _collect(client.iter_monitor_items(monitor_id, page_size=50)),
+        check_items,
+    )
 
 
 async def _collect(iterator: Any) -> list:
@@ -423,7 +478,7 @@ async def main() -> int:
         run = SmokeRun(client)
         await run_monitors(run, args.with_run)
         if args.with_accounts:
-            await run_watched_accounts(run)
+            await run_watched_accounts(run, args.with_run)
 
     print(f"{run.failures} failure(s) on {args.base_url}", flush=True)
     return 1 if run.failures else 0
