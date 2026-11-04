@@ -122,11 +122,13 @@ Instagram
 Facebook
 --------
 
-``facebook_search(query, count=None, cursor=None)``
+``facebook_search(query, count=None, cursor=None, sort=None)``
    ``POST /desearch/facebook/search``. Searches the public Meta Ad Library, not
-   organic posts. Returns ``List[FacebookPost]`` with the ad fields set
-   (``linkUrl``, ``cta``, ``headline``, ``linkDescription``, ``endDate``,
-   ``active``, ``platforms``). Paginates.
+   organic posts. ``sort`` is ``impressions`` (the API default: most seen
+   first) or ``recent`` (puts recently started ads first). Returns
+   ``List[FacebookPost]`` with the ad fields set (``linkUrl``, ``cta``,
+   ``headline``, ``linkDescription``, ``endDate``, ``active``,
+   ``platforms``). Paginates.
 
 ``facebook_post_by_id(id)``
    ``GET /desearch/facebook/post/{id}``. Returns ``FacebookPost``.

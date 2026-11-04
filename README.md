@@ -139,7 +139,7 @@ Public posts, profiles, comments, and hashtags. Path parameters (IDs, usernames,
 | `instagram_profile_posts(username, count=None, cursor=None)` | `GET /desearch/instagram/profile/{username}/posts` | `List[InstagramMedia]` | yes |
 | `instagram_comments(shortcode, count=None, cursor=None)` | `GET /desearch/instagram/comments/{shortcode}` | `List[InstagramComment]` | yes |
 | `instagram_hashtag(tag, count=None, cursor=None)` | `GET /desearch/instagram/hashtag/{tag}` | `List[InstagramMedia]` | yes |
-| `facebook_search(query, count=None, cursor=None)` | `POST /desearch/facebook/search` | `List[FacebookPost]` (Ad Library records) | yes |
+| `facebook_search(query, count=None, cursor=None, sort=None)` | `POST /desearch/facebook/search` | `List[FacebookPost]` (Ad Library records) | yes |
 | `facebook_post_by_id(id)` | `GET /desearch/facebook/post/{id}` | `FacebookPost` | no |
 | `facebook_profile(profile_id)` | `GET /desearch/facebook/profile/{profile_id}` | `FacebookProfile` | no |
 | `facebook_profile_posts(profile_id, count=None, cursor=None)` | `GET /desearch/facebook/profile/{profile_id}/posts` | `List[FacebookPost]` | yes |
@@ -150,7 +150,7 @@ Every method also takes the keyword-only `include_metadata`. `count` is a maximu
 
 - Pass usernames without `@` and hashtags without `#`.
 - `TikTokPost.id` is the video ID that `tiktok_comments` takes. `instagram_comments` takes the post shortcode (`InstagramMedia.shortcode`, the code in `instagram.com/p/<shortcode>/`); a numeric media ID returns 404.
-- `facebook_search` and `facebook_hashtag` search the public Meta Ad Library, not organic posts. Their results set the ad fields of `FacebookPost`: `linkUrl`, `cta`, `headline`, `linkDescription`, `endDate`, `active`, and `platforms`.
+- `facebook_search` and `facebook_hashtag` search the public Meta Ad Library, not organic posts. Their results set the ad fields of `FacebookPost`: `linkUrl`, `cta`, `headline`, `linkDescription`, `endDate`, `active`, and `platforms`. `facebook_search(sort=...)` is `impressions` (the API default: most seen first) or `recent` (Meta's monthly relevance grouping, which puts recently started ads first).
 - `instagram_search` finds profiles and returns one page; the API rejects a cursor there, so the method takes none.
 - Like `x_search`, a list method returns the raw body (a `dict`) when the API does not answer with a list.
 
@@ -181,7 +181,7 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-- Send the cursor back unchanged, to the same method with the same target (username, tag, post ID, or query; for `tiktok_search`, also the same `sort`). It is opaque: never build, edit, or reuse one elsewhere.
+- Send the cursor back unchanged, to the same method with the same target (username, tag, post ID, or query; for `tiktok_search` and `facebook_search`, also the same `sort`). It is opaque: never build, edit, or reuse one elsewhere.
 - A cursor is valid for 24 hours. An expired cursor, one from another route or target, or any value the API did not issue gets HTTP 422 (raised as `DesearchAPIError`) and is not charged.
 - `next_cursor` is `None` on the last page. A page shorter than `count` is not the end: one request reads one provider page, which can be smaller (about 3 for Facebook profile posts, 10 for Facebook comments, 12 for Instagram profile posts).
 - Items the previous page already returned are dropped from the next one, so a page can hold fewer items than the provider sent.
@@ -566,6 +566,173 @@ HTTP errors raise `DesearchAPIError`, with the same statuses as People Search:
 - `410`: the results expired (they are kept 30 days after the task ends).
 - `409` from pause, resume, or cancel raises `CompanyTaskConflictError`, a `DesearchAPIError` subclass. `.detail` explains why, and `.task` holds the task's current state as a `CompanyTask`.
 
+## Monitors
+
+A monitor is a search that runs on a schedule and returns only what is new since its last run. Each run searches its sources (`web`, `x`, `reddit`, `youtube`, `threads`, `tiktok`, `meta_ads`), or reads the accounts and hashtags it watches (also on `instagram` and `facebook`, which only watch accounts or hashtags), inside a time window that starts where the previous run ended, drops everything the monitor has already seen, screens the rest with an AI classifier against your `query` and `criteria`, and keeps the items that score at least `min_score`. Kept items stay readable through the API and go to your webhook (1.13.0 and later).
+
+```python
+import asyncio
+
+from desearch_py import Desearch, MonitorEvent, MonitorInterval, MonitorSource
+
+
+async def main() -> None:
+    async with Desearch(api_key="your_api_key") as client:
+        # The most one run, and a month of runs, can cost. Free.
+        estimate = await client.estimate_monitor(
+            sources=[MonitorSource.WEB, MonitorSource.X], interval=MonitorInterval.ONE_DAY
+        )
+        print(estimate.max_run_cost_usd, estimate.max_monthly_cost_usd)
+
+        # Create it. Free; the first run is queued at once (run_now=False to wait).
+        monitor = await client.create_monitor(
+            query="Bittensor subnet launches and updates",
+            name="Bittensor subnet news",
+            criteria=["Announces a new subnet, release or partnership"],
+            sources=[MonitorSource.WEB, MonitorSource.X, MonitorSource.REDDIT],
+            interval=MonitorInterval.ONE_DAY,
+            options={"x": {"count": 20, "lang": "en"}, "web": {"count": 10}},
+            webhook={
+                "url": "https://example.com/hooks/desearch",
+                "events": [MonitorEvent.ITEMS_FOUND, MonitorEvent.RUN_FAILED],
+            },
+            metadata={"team": "growth"},
+        )
+        # Shown only now (and by rotate_monitor_webhook_secret). Store it.
+        secret = monitor.webhook_secret
+
+        # Run it now, wait for the run, and read what it kept.
+        run = await client.trigger_monitor(monitor.monitor_id)
+        run = await client.wait_for_monitor_run(monitor.monitor_id, run.run_id)
+        print(run.status, run.item_count, run.cost_usd, run.stats["screen"])
+        for item in run.items:
+            print(item.score, item.source, item.url, item.title or item.text)
+
+        # Everything it has kept so far, newest first, page by page.
+        async for item in client.iter_monitor_items(monitor.monitor_id, source="x"):
+            print(item.published_at, item.url)
+
+
+asyncio.run(main())
+```
+
+### Watched accounts
+
+Instead of searching, a source can read up to 10 accounts on every run: `options.x.accounts` (X usernames, at most 15 characters), `options.reddit.subreddits`, `options.youtube.channels` (`@handle` or a `UC…` channel ID), `options.tiktok.accounts`, and `options.threads.accounts`. Names can be pasted as `OpenAI`, `@OpenAI`, `r/LocalLLaMA`, or a profile URL; the API cleans them and returns them as `OpenAI`, `LocalLLaMA`, `@OpenAI` or `UC…`, `openai`, and `zuck`. An invalid name, or more than 10 in one list, is a 422. The `query` and `criteria` still decide what is kept, and `min_score=0` keeps every new post:
+
+```python
+monitor = await client.create_monitor(
+    query="Model and API launches",
+    sources=[MonitorSource.X, MonitorSource.REDDIT, MonitorSource.YOUTUBE, MonitorSource.TIKTOK],
+    options={
+        "x": {"accounts": ["OpenAI", "@AnthropicAI"], "min_likes": 50},
+        "reddit": {"subreddits": ["r/LocalLLaMA"]},
+        "youtube": {"channels": ["@OpenAI"]},
+        "tiktok": {"count": 10, "accounts": ["openai"]},
+    },
+    min_score=0,  # keep every new post from these accounts
+)
+print(monitor.options["x"]["accounts"])  # ["OpenAI", "AnthropicAI"]
+```
+
+With `x.accounts`, X reads each account's timeline (20 posts), so `x.count` is not used, while `x.lang` and `x.min_likes` still filter. `tiktok.count` is per account. TikTok search has no working date filter and ranks by relevance, so a TikTok keyword monitor finds a new video only when it reaches TikTok's top results; to follow creators, watch their accounts. Threads keyword search returns loosely matched posts, so watching accounts works better there too. An account that cannot be read (unknown or private) is listed in `run.stats["sources"][source]["accounts_failed"]`; the source fails only when all of its accounts do.
+
+### Watched hashtags
+
+TikTok and Instagram can also watch up to 10 hashtags each: `options.tiktok.hashtags` and `options.instagram.hashtags`, in any script (`skincare`, `#სილამაზე`, or a tag URL such as `https://www.tiktok.com/tag/skincare` or `https://www.instagram.com/explore/tags/skincare/`). The API returns them without `#` (`skincare`). A hashtag feed lists popular as well as recent posts from any account, so a monitor finds posts outside the accounts it watches; the window drops the old ones and the monitor's seen items the rest. With accounts or hashtags, a source reads those feeds instead of searching by keyword. Each run reads `tiktok.count` posts per TikTok hashtag and up to 12 per Instagram hashtag. Facebook has no organic hashtag feed; for ads by keyword, use `meta_ads`. A hashtag that cannot be read is listed in `run.stats["sources"][source]["hashtags_failed"]`, and an item read from a hashtag has `data["hashtag"]`:
+
+```python
+monitor = await client.create_monitor(
+    query="Posts about our skincare brand",
+    sources=[MonitorSource.TIKTOK, MonitorSource.INSTAGRAM],
+    options={
+        "tiktok": {"count": 10, "hashtags": ["#სილამაზე", "https://www.tiktok.com/tag/skincare"]},
+        "instagram": {"hashtags": ["skincare", "სილამაზე"]},  # no accounts needed
+    },
+    min_score=0,  # keep every new post with these hashtags
+)
+print(monitor.options["tiktok"]["hashtags"])  # ["სილამაზე", "skincare"]
+```
+
+### Instagram, Facebook, and Meta ads
+
+`instagram` and `facebook` have no keyword search for posts, so they only read watched feeds: `options.instagram.accounts` (up to 10 usernames, `openai`, `@openai` or a profile URL) or `options.instagram.hashtags` (see [Watched hashtags](#watched-hashtags)), and `options.facebook.pages` (1-10 page names or numeric IDs, `NASA`, `100064869009429` or a page URL; `profile.php?id=…` and `/pages/Name/123…` links become the ID). Each run reads up to 12 posts per Instagram account or hashtag and 10 per Facebook page. Without any, `create_monitor` and `update_monitor` return 422 (`update_monitor` checks the monitor as changed: `sources` and `options` from the call, else the current ones); `estimate_monitor` prices one account instead.
+
+`meta_ads` searches the Meta Ad Library by keyword, `options.meta_ads.count` (10, 20 or 30; default 10) ads per run. The Ad Library matches keywords, so the `query` should be a brand, product or short phrase (`ChatGPT`, `Midjourney`); a sentence finds nothing. It has no date filter: an ad counts as new the first time a run sees it, if it started within the last 30 days. Ads are screened with their own relevance question (is the ad about what the monitor watches) and have no `new_info`. For Facebook pages' own posts, watch them with `facebook` instead.
+
+```python
+monitor = await client.create_monitor(
+    query="ChatGPT",
+    sources=[MonitorSource.INSTAGRAM, MonitorSource.FACEBOOK, MonitorSource.META_ADS, MonitorSource.THREADS],
+    options={
+        "instagram": {"accounts": ["@openai"]},
+        "facebook": {"pages": ["https://www.facebook.com/NASA"]},
+        "meta_ads": {"count": 20},
+        "threads": {"accounts": ["@zuck"]},
+    },
+)
+print(monitor.options["facebook"]["pages"])  # ["NASA"]
+```
+
+### Monitors pricing
+
+Creating, reading, and changing monitors is free. Each run pays for what it uses: its searches at their list price (the same as calling those endpoints yourself), AI screening per item screened ($0.05 per 1,000 items), and, with `summary=True`, the summary's LLM usage plus 50%. Runs with no new items still pay for their searches. TikTok, Instagram, Facebook and Meta ads are billed per read, $3.00 per 1,000 reads ($0.003 a read), whatever the number of posts a read returns: one read per watched account, hashtag or Facebook page, one per TikTok keyword search, and one per Ad Library page (`meta_ads`, whatever `meta_ads.count`). A read that returns nothing is free, except an empty or private TikTok account, which takes two reads, so a run's hold counts two reads per TikTok account. The other sources pay their feed's list price: an X timeline is 20 posts at the per-post X price (about $0.003), and a subreddit, YouTube channel or Threads profile is one request ($0.00207). `estimate_monitor` includes them in `breakdown`, keyed by source. When a run is queued, its `max_run_cost_usd` is held on the balance; when it ends it is billed what it used (never more than the hold) and the rest is released. A run that cannot be held fails with `insufficient_credits` and the monitor pauses until you resume it. See <https://desearch.ai/pricing>.
+
+### Monitors methods
+
+| Method | Route | Returns |
+|---|---|---|
+| `create_monitor` | `POST /desearch/monitors` | `Monitor` (with `webhook_secret` when a webhook is set) |
+| `estimate_monitor` | `POST /desearch/monitors/estimate` | `MonitorEstimate` |
+| `list_monitors` | `GET /desearch/monitors` | `MonitorList` |
+| `get_monitor` | `GET /desearch/monitors/{monitor_id}` | `Monitor` |
+| `update_monitor` | `PATCH /desearch/monitors/{monitor_id}` | `Monitor` |
+| `pause_monitor` / `resume_monitor` | `PATCH /desearch/monitors/{monitor_id}` with `status` | `Monitor` |
+| `delete_monitor` | `DELETE /desearch/monitors/{monitor_id}` | `MonitorDeleted` |
+| `trigger_monitor` | `POST /desearch/monitors/{monitor_id}/trigger` | `MonitorRun` (queued) |
+| `list_monitor_runs` | `GET /desearch/monitors/{monitor_id}/runs` | `MonitorRunList` |
+| `get_monitor_run` | `GET /desearch/monitors/{monitor_id}/runs/{run_id}` | `MonitorRunWithItems` |
+| `list_monitor_items` | `GET /desearch/monitors/{monitor_id}/items` | `MonitorItemList` |
+| `test_monitor_webhook` | `POST /desearch/monitors/{monitor_id}/webhook/test` | `MonitorWebhookTest` |
+| `rotate_monitor_webhook_secret` | `POST /desearch/monitors/{monitor_id}/webhook/rotate-secret` | `MonitorWebhookSecret` |
+| `wait_for_monitor_run` | polls `get_monitor_run` | the ended `MonitorRunWithItems` |
+| `iter_monitor_items` | follows `next_cursor` on `list_monitor_items` | async iterator of `MonitorItem` |
+
+- `create_monitor` takes `query` (3-500 characters), `name`, `criteria` (up to 5, each up to 300 characters), `sources` (`MonitorSource`: `web`, `x`, `reddit`, `youtube`, `threads`, `tiktok`, `instagram`, `facebook`, `meta_ads`; API default `web` and `x`), `interval` (`MonitorInterval`: `1h`, `3h`, `6h`, `12h`, `1d`, `7d`; API default `1d`), `options` (`web.count` 10, 15 or 20; `x.count` 1-100, `x.lang`, `x.min_likes`; `tiktok.count` and `meta_ads.count` 10, 20 or 30; and the watched accounts and hashtags above, one of which `instagram` and `facebook` need), `min_score` (0-100, API default 60), `summary`, `webhook` (`url` HTTPS on a public address, `events` from `MonitorEvent`), `metadata` (up to 20 string keys, echoed in webhooks), and `run_now` (API default `True`). `estimate_monitor` takes `sources`, `options`, `summary`, and `interval`.
+- `update_monitor` sends only the arguments you pass. `status="paused"` stops scheduled runs (`trigger_monitor` still works) and `status="active"` resumes them, also after a pause for `insufficient_credits` or `webhook_failing`. `remove_webhook=True` removes the webhook. `options` and `webhook` replace the current value as a whole (a `webhook` without `events` gets the default events), so read the monitor first to change one part of them. A new webhook URL gets a new `webhook_secret`, returned on that response.
+- `list_monitors` takes `status` (`active`, `paused`, a list, or a comma-separated string), `limit` (1-100), and `cursor`. `list_monitor_runs` takes `limit` (1-100) and `cursor`; `list_monitor_items` takes `limit` (1-200), `cursor`, and `source` (any `MonitorSource`, such as `meta_ads`). Pass `next_cursor` back as `cursor`; it is `None` on the last page.
+- `run.stats["sources"]` counts per source what was `fetched`, `in_window`, `new` and `passed` (with `accounts_failed` and `hashtags_failed` when a watched feed could not be read), and `run.stats["screen"]` is `ai` (screened by an AI classifier) or `keyword` (the fallback). An item's `score` (0-100) is the lowest of `relevant` and the criteria; `signals` has `relevant` and `new_info` (not on Meta ads), plus `criteria` (the lowest answer across the criteria) when the monitor has criteria, and `data` holds source fields (X `likes`, `reposts`, `replies`, `views`; Reddit `subreddit`, `score`, `comments`; YouTube `channel`, `views`, `thumbnail`; TikTok `views`, `likes`, `comments`, `shares`, `saves`, `duration_s`; Threads `likes`; Instagram `likes`, `comments`, `views`, `media_type`; Facebook `reactions`, `comments`, `shares`, `views`; Meta ads `page`, `active`, `cta`, `link` (the ad's landing page), `platforms`, `thumbnail`, with the ad headline as `item.title` and `item.url` the Ad Library record; web `highlights`, `domain`). TikTok, Instagram and Facebook items also have `post_id` (the ID `GET /desearch/social/post` gives the same post; an Instagram shortcode), `type` (`video`, `image`, `carousel`, `reel`, …), `hashtags`, `mentions` (TikTok and Instagram), `media` (links to the post's videos and pictures) and `thumbnail`; media and thumbnail links expire after a few days. The metrics are the post's when the run found it; `GET /desearch/social/post?url=<link>` reads them again (`author=true` adds the author's followers). An item read from a watched account also has `data["account"]`, and one read from a watched hashtag `data["hashtag"]`.
+- `wait_for_monitor_run` polls every 5 seconds for up to 10 minutes and raises `MonitorRunTimeoutError` (with the last state on `.run`) on timeout.
+
+### Verifying webhooks
+
+Deliveries are `POST`s with `Desearch-Event`, `Desearch-Delivery`, and `Desearch-Signature: t=<unix>,v1=<hex>` headers. `verify_webhook_signature` checks the HMAC-SHA256 of `"<t>.<raw body>"` keyed with the monitor's `webhook_secret`, rejects a timestamp more than 5 minutes off, and compares in constant time. Pass the raw body, before any JSON parsing:
+
+```python
+from desearch_py import MonitorWebhookEvent, verify_webhook_signature
+
+# e.g. in a Starlette/FastAPI handler
+body = await request.body()
+if not verify_webhook_signature(secret, request.headers.get("Desearch-Signature"), body):
+    return Response(status_code=400)
+event = MonitorWebhookEvent.model_validate_json(body)
+if event.type == "monitor.items.found":
+    for item in event.items:
+        print(item.url, item.score)
+```
+
+Answer with a 2xx within 10 seconds. A delivery that does not get one is retried after 1, 5, 30, 120, and 360 minutes, and after 5 deliveries in a row fail every attempt, the monitor pauses with `paused_reason` `webhook_failing`. `monitor.webhook.last_delivery` (a `MonitorWebhookDelivery`, `None` before the first delivery) shows the newest one: `status` `pending` while it waits for its first or next attempt (`next_attempt_at`, with the last answer in `status_code` and `error`), `delivered`, or `failed` after every retry, plus `event`, `attempts`, `created_at`, and `delivered_at`. `test_monitor_webhook` sends a signed `monitor.test` event (with `run` `None`) and reports what your endpoint answered; it is not a delivery and leaves `last_delivery` as it was.
+
+### Monitors errors
+
+HTTP errors raise `DesearchAPIError`:
+
+- `400`: an invalid body or cursor, a webhook URL that is not HTTPS on a public address, or a webhook test or secret rotation on a monitor without a webhook.
+- `402`: the balance cannot hold one run (on create, also with `run_now=False`, and on trigger).
+- `404`: the monitor or run does not exist or belongs to another account.
+- `409`: the account already has 25 monitors (create), or a run is already queued or running (trigger).
+- `422`: a value out of range or an invalid account name or hashtag (`detail` lists each), or `instagram` without watched accounts or hashtags or `facebook` without watched pages (create and update).
+
 ## Requirements
 
 Dependencies declared in source:
@@ -704,9 +871,19 @@ See [People Search](#people-search) for an example, pricing, and filters.
 
 See [Company Search](#company-search) for an example, pricing, and how results fill in.
 
+### Monitors endpoints
+
+- `create_monitor`, `estimate_monitor`, `list_monitors`, `get_monitor`, `update_monitor`, `delete_monitor`
+- `pause_monitor`, `resume_monitor`, `trigger_monitor`
+- `list_monitor_runs`, `get_monitor_run`, `list_monitor_items`
+- `test_monitor_webhook`, `rotate_monitor_webhook_secret`
+- helpers: `wait_for_monitor_run`, `iter_monitor_items`, and `verify_webhook_signature`
+
+See [Monitors](#monitors) for an example, pricing, and webhook verification.
+
 ### Typed exports
 
-The package re-exports the async client plus enums and models from `desearch_py.models`, including `Tool`, `WebTool`, `DateFilter`, `ResultType`, `Sort`, `ResponseData`, `DesearchCostMetadata`, `DesearchResponse`, `TwitterScraperTweet`, `WebSearchResponse`, `WebSearchResultsResponse`, `XLinksSearchResponse`, `XRetweetersResponse`, `XUserPostsResponse`, and `XTrendsResponse`. 1.11.0 adds the Search API models `SearchApiResponse`, `SearchApiResult`, and the enum `SearchApiMode`; the TikTok models `TikTokPost`, `TikTokProfile`, `TikTokComment`, `TikTokAuthor`, `TikTokStats`, and `TikTokMusic`; the Instagram models `InstagramMedia`, `InstagramProfile`, `InstagramComment`, `InstagramSearchResult`, and `InstagramStats`; the Facebook models `FacebookPost`, `FacebookProfile`, `FacebookComment`, `FacebookMedia`, and `FacebookPostStats`; and the network stats models `NetworkStatsResponse`, `NetworkStatsRates`, `NetworkStatsHistoryResponse`, `NetworkStatsHistoryPoint`, and `NetworkStatsEvent`. It also adds the YouTube models `YouTubeItem`, `YouTubeVideo`, `YouTubeTranscript`, `YouTubeTranscriptSegment`, `YouTubeComment`, `YouTubeCommentAuthor`, `YouTubeChannel`, `YouTubeChannelRef`, `YouTubeChapter`, and `YouTubeCaptionLanguage`; the Reddit models `RedditPost`, `RedditComment`, and `RedditSubreddit`; and the Threads models `ThreadsPost`, `ThreadsPostDetail`, `ThreadsProfile`, and `ThreadsUser`. People Search adds `PeopleTask`, `PeopleTaskList`, `PeopleResultsPage`, `Person`, `PeopleProfile`, `PeopleProfilesPage`, `PeopleResultFilters`, the four request and filters models, the result models `PeopleTaskWarning` and `PeopleCriterionCheck`, the enums `PeoplePlatform`, `PeopleTaskStatus`, `PeopleProfileSort`, `PeopleExportFormat`, `PeopleChannel`, `PeopleCompletionReason`, `PeopleCriterionVerdict`, `PeopleEnrichment`, and `PeopleEnrichmentError`, and the errors `PeopleTaskConflictError` and `PeopleTaskTimeoutError`. Company Search adds the request models `CompanySearchRequest`, `CompanySearchFilters`, and `CompanyEnrichRequest`, the task models `CompanyTask`, `CompanyTaskList`, and `CompanyTaskWarning`, the result models `CompanyResultsPage`, `Company`, `CompanyEmail`, `CompanyEmailVerification`, `CompanyEmailChecks`, `CompanyPhone`, `CompanySocial`, `CompanyPage`, `CompanyLocation`, `CompanyPerson`, `CompanyPersonEvidence`, `CompanyPrimaryContact`, `CompanyContactCoverage`, `CompanyEnrichment`, `CompanyEnrichmentStages`, `CompanyEnrichmentError`, `CompanyScore`, and `CompanyFoundBy`, the enums `CompanyTaskType`, `CompanyRole`, `CompanyRequirement`, `CompanyCompletionReason`, and `CompanyEmailStatus`, and the errors `CompanyTaskConflictError` and `CompanyTaskTimeoutError`. It reuses `PeopleTaskStatus`, `PeopleExportFormat`, `PeopleCriterionCheck`, `PeopleTaskLinks`, and `PeopleTaskCreatedBy`.
+The package re-exports the async client plus enums and models from `desearch_py.models`, including `Tool`, `WebTool`, `DateFilter`, `ResultType`, `Sort`, `ResponseData`, `DesearchCostMetadata`, `DesearchResponse`, `TwitterScraperTweet`, `WebSearchResponse`, `WebSearchResultsResponse`, `XLinksSearchResponse`, `XRetweetersResponse`, `XUserPostsResponse`, and `XTrendsResponse`. 1.11.0 adds the Search API models `SearchApiResponse`, `SearchApiResult`, and the enum `SearchApiMode`; the TikTok models `TikTokPost`, `TikTokProfile`, `TikTokComment`, `TikTokAuthor`, `TikTokStats`, and `TikTokMusic`; the Instagram models `InstagramMedia`, `InstagramProfile`, `InstagramComment`, `InstagramSearchResult`, and `InstagramStats`; the Facebook models `FacebookPost`, `FacebookProfile`, `FacebookComment`, `FacebookMedia`, and `FacebookPostStats`; and the network stats models `NetworkStatsResponse`, `NetworkStatsRates`, `NetworkStatsHistoryResponse`, `NetworkStatsHistoryPoint`, and `NetworkStatsEvent`. It also adds the YouTube models `YouTubeItem`, `YouTubeVideo`, `YouTubeTranscript`, `YouTubeTranscriptSegment`, `YouTubeComment`, `YouTubeCommentAuthor`, `YouTubeChannel`, `YouTubeChannelRef`, `YouTubeChapter`, and `YouTubeCaptionLanguage`; the Reddit models `RedditPost`, `RedditComment`, and `RedditSubreddit`; and the Threads models `ThreadsPost`, `ThreadsPostDetail`, `ThreadsProfile`, and `ThreadsUser`. People Search adds `PeopleTask`, `PeopleTaskList`, `PeopleResultsPage`, `Person`, `PeopleProfile`, `PeopleProfilesPage`, `PeopleResultFilters`, the four request and filters models, the result models `PeopleTaskWarning` and `PeopleCriterionCheck`, the enums `PeoplePlatform`, `PeopleTaskStatus`, `PeopleProfileSort`, `PeopleExportFormat`, `PeopleChannel`, `PeopleCompletionReason`, `PeopleCriterionVerdict`, `PeopleEnrichment`, and `PeopleEnrichmentError`, and the errors `PeopleTaskConflictError` and `PeopleTaskTimeoutError`. Company Search adds the request models `CompanySearchRequest`, `CompanySearchFilters`, and `CompanyEnrichRequest`, the task models `CompanyTask`, `CompanyTaskList`, and `CompanyTaskWarning`, the result models `CompanyResultsPage`, `Company`, `CompanyEmail`, `CompanyEmailVerification`, `CompanyEmailChecks`, `CompanyPhone`, `CompanySocial`, `CompanyPage`, `CompanyLocation`, `CompanyPerson`, `CompanyPersonEvidence`, `CompanyPrimaryContact`, `CompanyContactCoverage`, `CompanyEnrichment`, `CompanyEnrichmentStages`, `CompanyEnrichmentError`, `CompanyScore`, and `CompanyFoundBy`, the enums `CompanyTaskType`, `CompanyRole`, `CompanyRequirement`, `CompanyCompletionReason`, and `CompanyEmailStatus`, and the errors `CompanyTaskConflictError` and `CompanyTaskTimeoutError`. It reuses `PeopleTaskStatus`, `PeopleExportFormat`, `PeopleCriterionCheck`, `PeopleTaskLinks`, and `PeopleTaskCreatedBy`. 1.13.0 adds Monitors: `Monitor`, `MonitorList`, `MonitorRun`, `MonitorRunWithItems`, `MonitorRunList`, `MonitorItem`, `MonitorItemList`, `MonitorEstimate`, `MonitorDeleted`, `MonitorWebhook`, `MonitorWebhookTest`, `MonitorWebhookSecret`, `MonitorWebhookEvent`, `MonitorWebhookMonitor`, `MonitorLastRun`, `MonitorStats`, the request models `MonitorCreateRequest`, `MonitorUpdateRequest`, `MonitorEstimateRequest`, `MonitorOptions`, `MonitorWebOptions`, `MonitorXOptions`, `MonitorRedditOptions`, `MonitorYouTubeOptions`, `MonitorTikTokOptions`, `MonitorThreadsOptions`, `MonitorInstagramOptions`, `MonitorFacebookOptions`, `MonitorMetaAdsOptions`, and `MonitorWebhookConfig`, the webhook delivery model `MonitorWebhookDelivery`, the enums `MonitorSource`, `MonitorInterval`, `MonitorEvent`, `MonitorStatus`, and `MonitorRunStatus`, `MONITOR_RUN_ENDED_STATUSES`, the error `MonitorRunTimeoutError`, `verify_webhook_signature` with `SIGNATURE_HEADER` and `DEFAULT_TOLERANCE_SECONDS`.
 
 ## Architecture overview
 
