@@ -53,8 +53,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `thumbnail`) and `signals["criteria"]`.
 - Watched hashtags on TikTok and Instagram: `options.tiktok.hashtags` and
   `options.instagram.hashtags` (`MonitorTikTokOptions.hashtags`,
-  `MonitorInstagramOptions.hashtags`; at most 10 each, in any script, `aversi`,
-  `#ავერსი` or a tag URL). A hashtag feed lists posts from any account, so a
+  `MonitorInstagramOptions.hashtags`; at most 10 each, in any script, `skincare`,
+  `#სილამაზე` or a tag URL). A hashtag feed lists posts from any account, so a
   monitor finds posts outside the accounts it watches. Instagram needs
   accounts or hashtags. A hashtag that cannot be read is listed in
   `stats["sources"][source]["hashtags_failed"]`, and items read from one have

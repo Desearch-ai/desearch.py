@@ -344,12 +344,12 @@ class MonitorCrudTests(_ClientTestCase):
         # Hashtags in any script, with or without #, or as a tag URL; Instagram
         # may watch hashtags without accounts.
         options = {
-            "tiktok": {"accounts": ["@openai"], "hashtags": ["#ავერსი", "https://www.tiktok.com/tag/aversi"]},
-            "instagram": {"hashtags": ["https://www.instagram.com/explore/tags/aversi/", "ავერსი"]},
+            "tiktok": {"accounts": ["@openai"], "hashtags": ["#სილამაზე", "https://www.tiktok.com/tag/skincare"]},
+            "instagram": {"hashtags": ["https://www.instagram.com/explore/tags/skincare/", "სილამაზე"]},
         }
         cleaned = {
-            "tiktok": {"count": 10, "accounts": ["openai"], "hashtags": ["ავერსი", "aversi"]},
-            "instagram": {"hashtags": ["aversi", "ავერსი"]},
+            "tiktok": {"count": 10, "accounts": ["openai"], "hashtags": ["სილამაზე", "skincare"]},
+            "instagram": {"hashtags": ["skincare", "სილამაზე"]},
         }
         body = _monitor(sources=["tiktok", "instagram"], options=cleaned, min_score=0)
         client = self.make_client(FakeResponse(json_data=body, status=201))
@@ -359,8 +359,8 @@ class MonitorCrudTests(_ClientTestCase):
             options=MonitorOptions.model_validate(options),
             min_score=0,
         )
-        self.assertEqual(monitor.options["tiktok"]["hashtags"], ["ავერსი", "aversi"])
-        self.assertEqual(monitor.options["instagram"], {"hashtags": ["aversi", "ავერსი"]})
+        self.assertEqual(monitor.options["tiktok"]["hashtags"], ["სილამაზე", "skincare"])
+        self.assertEqual(monitor.options["instagram"], {"hashtags": ["skincare", "სილამაზე"]})
         self.assertEqual(
             self.request(client)[2]["json"],
             {"query": QUERY, "sources": ["tiktok", "instagram"], "options": options, "min_score": 0},
@@ -372,9 +372,9 @@ class MonitorCrudTests(_ClientTestCase):
                 "x": {"accounts": ["OpenAI"]},
                 "reddit": {"subreddits": ["LocalLLaMA"]},
                 "youtube": {"channels": ["@OpenAI"]},
-                "tiktok": {"count": 30, "accounts": ["openai"], "hashtags": ["aversi"]},
+                "tiktok": {"count": 30, "accounts": ["openai"], "hashtags": ["skincare"]},
                 "threads": {"accounts": ["zuck"]},
-                "instagram": {"accounts": ["openai"], "hashtags": ["ავერსი"]},
+                "instagram": {"accounts": ["openai"], "hashtags": ["სილამაზე"]},
                 "facebook": {"pages": ["NASA", "100064869009429"]},
                 "meta_ads": {"count": 10},
             }
@@ -383,9 +383,9 @@ class MonitorCrudTests(_ClientTestCase):
         self.assertEqual(options.reddit.subreddits, ["LocalLLaMA"])
         self.assertEqual(options.youtube.channels, ["@OpenAI"])
         self.assertEqual((options.tiktok.count, options.tiktok.accounts), (30, ["openai"]))
-        self.assertEqual(options.tiktok.hashtags, ["aversi"])
+        self.assertEqual(options.tiktok.hashtags, ["skincare"])
         self.assertEqual(options.threads.accounts, ["zuck"])
-        self.assertEqual((options.instagram.accounts, options.instagram.hashtags), (["openai"], ["ავერსი"]))
+        self.assertEqual((options.instagram.accounts, options.instagram.hashtags), (["openai"], ["სილამაზე"]))
         self.assertEqual(options.facebook.pages, ["NASA", "100064869009429"])
         self.assertEqual(options.meta_ads.count, 10)
         self.assertEqual(
@@ -395,8 +395,8 @@ class MonitorCrudTests(_ClientTestCase):
                 "reddit": {"subreddits": ["LocalLLaMA"]},
                 "youtube": {"channels": ["@OpenAI"]},
                 "threads": {"accounts": ["zuck"]},
-                "tiktok": {"count": 30, "accounts": ["openai"], "hashtags": ["aversi"]},
-                "instagram": {"accounts": ["openai"], "hashtags": ["ავერსი"]},
+                "tiktok": {"count": 30, "accounts": ["openai"], "hashtags": ["skincare"]},
+                "instagram": {"accounts": ["openai"], "hashtags": ["სილამაზე"]},
                 "facebook": {"pages": ["NASA", "100064869009429"]},
                 "meta_ads": {"count": 10},
             },
@@ -788,7 +788,7 @@ class MonitorItemTests(_ClientTestCase):
             source="tiktok",
             url="https://www.tiktok.com/@someone/video/7570000000000000001",
             data={
-                "hashtag": "aversi",
+                "hashtag": "skincare",
                 "post_id": "7570000000000000001",
                 "type": "video",
                 "views": 3400,
@@ -797,8 +797,8 @@ class MonitorItemTests(_ClientTestCase):
                 "shares": 3,
                 "saves": 14,
                 "duration_s": 21,
-                "hashtags": ["aversi", "pharmacy"],
-                "mentions": ["aversipharma"],
+                "hashtags": ["skincare", "serum"],
+                "mentions": ["skincarebrand"],
                 "media": ["https://v16.tiktokcdn.com/video.mp4"],
                 "thumbnail": "https://p16-sign.tiktokcdn.com/thumb.jpeg",
             },
@@ -806,16 +806,16 @@ class MonitorItemTests(_ClientTestCase):
         instagram = _item(
             "2100",
             source="instagram",
-            data={"hashtag": "ავერსი", "post_id": "DfPq1x2ABcd", "type": "carousel", "media_type": "carousel",
+            data={"hashtag": "სილამაზე", "post_id": "DfPq1x2ABcd", "type": "carousel", "media_type": "carousel",
                   "media": ["https://scontent.cdninstagram.com/1.jpg", "https://scontent.cdninstagram.com/2.jpg"]},
         )
         facebook = _item("2099", source="facebook", data={"account": "NASA", "post_id": "1234567890", "type": "video", "views": 52000})
         client = self.make_client(FakeResponse(json_data={"items": [tiktok, instagram, facebook], "next_cursor": None}))
         page = await client.list_monitor_items(MONITOR_ID)
         by_source = {item.source: item for item in page.items}
-        self.assertEqual(by_source["tiktok"].data["hashtag"], "aversi")
+        self.assertEqual(by_source["tiktok"].data["hashtag"], "skincare")
         self.assertEqual(by_source["tiktok"].data["saves"], 14)
-        self.assertEqual(by_source["tiktok"].data["mentions"], ["aversipharma"])
+        self.assertEqual(by_source["tiktok"].data["mentions"], ["skincarebrand"])
         self.assertEqual(by_source["instagram"].data["post_id"], "DfPq1x2ABcd")
         self.assertEqual(len(by_source["instagram"].data["media"]), 2)
         self.assertEqual(by_source["facebook"].data["views"], 52000)

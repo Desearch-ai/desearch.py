@@ -2248,10 +2248,10 @@ class MonitorTikTokOptions(BaseModel):
     up to 10 TikTok usernames to watch (``openai``, ``@openai`` or a profile
     URL); each run then reads every profile's newest posts instead of
     searching by keyword. The API returns the names cleaned (``openai``).
-    ``hashtags``: up to 10 hashtags to watch, in any script (``aversi``,
-    ``#ავერსი`` or a ``https://www.tiktok.com/tag/aversi`` URL); a hashtag
+    ``hashtags``: up to 10 hashtags to watch, in any script (``skincare``,
+    ``#სილამაზე`` or a ``https://www.tiktok.com/tag/skincare`` URL); a hashtag
     feed lists posts from any account, so it finds posts outside the watched
-    accounts. The API returns them without ``#`` (``aversi``). TikTok search
+    accounts. The API returns them without ``#`` (``skincare``). TikTok search
     has no working date filter and ranks by relevance, so a keyword monitor
     finds a new video only when it reaches TikTok's top results; to follow
     creators or a tag, watch their accounts or the hashtag."""
@@ -2278,14 +2278,14 @@ class MonitorThreadsOptions(BaseModel):
 class MonitorInstagramOptions(BaseModel):
     """``accounts``: up to 10 Instagram usernames to watch (``openai``,
     ``@openai`` or a profile URL). ``hashtags``: up to 10 hashtags to watch,
-    in any script (``aversi``, ``#ავერსი`` or a
-    ``https://www.instagram.com/explore/tags/aversi/`` URL); a hashtag feed
+    in any script (``skincare``, ``#სილამაზე`` or a
+    ``https://www.instagram.com/explore/tags/skincare/`` URL); a hashtag feed
     lists posts from any account, so it finds posts outside the watched
     accounts. Instagram has no keyword search here, so the ``instagram``
     source needs at least one account or hashtag (the API returns 422
     otherwise). Each run reads up to 12 posts per account and per hashtag.
     The API returns the names cleaned (``openai``) and the hashtags without
-    ``#`` (``aversi``)."""
+    ``#`` (``skincare``)."""
 
     model_config = ConfigDict(extra="allow")
 

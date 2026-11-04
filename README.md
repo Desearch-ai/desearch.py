@@ -639,19 +639,19 @@ With `x.accounts`, X reads each account's timeline (20 posts), so `x.count` is n
 
 ### Watched hashtags
 
-TikTok and Instagram can also watch up to 10 hashtags each: `options.tiktok.hashtags` and `options.instagram.hashtags`, in any script (`aversi`, `#ავერსი`, or a tag URL such as `https://www.tiktok.com/tag/aversi` or `https://www.instagram.com/explore/tags/aversi/`). The API returns them without `#` (`aversi`). A hashtag feed lists popular as well as recent posts from any account, so a monitor finds posts outside the accounts it watches; the window drops the old ones and the monitor's seen items the rest. With accounts or hashtags, a source reads those feeds instead of searching by keyword. Each run reads `tiktok.count` posts per TikTok hashtag and up to 12 per Instagram hashtag. Facebook has no organic hashtag feed; for ads by keyword, use `meta_ads`. A hashtag that cannot be read is listed in `run.stats["sources"][source]["hashtags_failed"]`, and an item read from a hashtag has `data["hashtag"]`:
+TikTok and Instagram can also watch up to 10 hashtags each: `options.tiktok.hashtags` and `options.instagram.hashtags`, in any script (`skincare`, `#სილამაზე`, or a tag URL such as `https://www.tiktok.com/tag/skincare` or `https://www.instagram.com/explore/tags/skincare/`). The API returns them without `#` (`skincare`). A hashtag feed lists popular as well as recent posts from any account, so a monitor finds posts outside the accounts it watches; the window drops the old ones and the monitor's seen items the rest. With accounts or hashtags, a source reads those feeds instead of searching by keyword. Each run reads `tiktok.count` posts per TikTok hashtag and up to 12 per Instagram hashtag. Facebook has no organic hashtag feed; for ads by keyword, use `meta_ads`. A hashtag that cannot be read is listed in `run.stats["sources"][source]["hashtags_failed"]`, and an item read from a hashtag has `data["hashtag"]`:
 
 ```python
 monitor = await client.create_monitor(
-    query="Aversi pharmacies: promotions, reviews and complaints",
+    query="Posts about our skincare brand",
     sources=[MonitorSource.TIKTOK, MonitorSource.INSTAGRAM],
     options={
-        "tiktok": {"count": 10, "hashtags": ["#ავერსი", "https://www.tiktok.com/tag/aversi"]},
-        "instagram": {"hashtags": ["aversi", "ავერსი"]},  # no accounts needed
+        "tiktok": {"count": 10, "hashtags": ["#სილამაზე", "https://www.tiktok.com/tag/skincare"]},
+        "instagram": {"hashtags": ["skincare", "სილამაზე"]},  # no accounts needed
     },
     min_score=0,  # keep every new post with these hashtags
 )
-print(monitor.options["tiktok"]["hashtags"])  # ["ავერსი", "aversi"]
+print(monitor.options["tiktok"]["hashtags"])  # ["სილამაზე", "skincare"]
 ```
 
 ### Instagram, Facebook, and Meta ads
