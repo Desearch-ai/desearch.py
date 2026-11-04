@@ -8,14 +8,21 @@ about $0.002-0.01). With ``--with-accounts`` it also creates a free TikTok
 monitor that watches accounts on every source (desearch-public-api#635) and
 checks the names come back cleaned; with both flags it also runs that monitor
 once (billed, about $0.03-0.06) and checks every item names the account it was
-read from. Prints one line per call: ``PASS name`` or
-``FAIL name: error``. Exits 1 if any call fails, 2 if the API key is not set.
+read from. With ``--with-social`` it checks the Instagram, Facebook and Meta
+ads sources and Threads accounts (desearch-public-api#644) without running a
+monitor: cleaned names, the 422 for Instagram or Facebook without accounts on
+create and update, the estimate's breakdown, ``webhook.last_delivery`` and
+the ``meta_ads`` items filter, plus one ``facebook_search(sort="recent",
+count=2)`` call (billed, about $0.004). Every monitor the script creates is
+deleted before it exits, also when a check fails. Prints one line per call:
+``PASS name`` or ``FAIL name: error``. Exits 1 if any call fails, 2 if the API
+key is not set.
 
 Usage::
 
     DESEARCH_API_KEY=... python scripts/e2e_monitors.py
     python scripts/e2e_monitors.py --base-url https://api-dev.desearch.ai \\
-        --key-env DESEARCH_DEV_API_KEY --with-run --with-accounts
+        --key-env DESEARCH_DEV_API_KEY --with-run --with-accounts --with-social
 
 The key is read from the environment variable named by ``--key-env``
 (default ``DESEARCH_API_KEY``), or from ``~/.config/desearch/e2e.env``. The
@@ -39,6 +46,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from desearch_py import (  # noqa: E402
     Desearch,
     DesearchAPIError,
+    FacebookPost,
     Monitor,
     MonitorDeleted,
     MonitorEstimate,
@@ -47,6 +55,7 @@ from desearch_py import (  # noqa: E402
     MonitorRun,
     MonitorRunList,
     MonitorRunWithItems,
+    MonitorSource,
     MonitorWebhookSecret,
     MonitorWebhookTest,
 )
@@ -72,6 +81,27 @@ class SmokeRun:
     def __init__(self, client: Desearch) -> None:
         self.client = client
         self.failures = 0
+        # Monitors created and not deleted yet; cleanup() deletes what is left.
+        self.created: set[str] = set()
+
+    async def create_monitor(self, *args: Any, **kwargs: Any) -> Monitor:
+        monitor = await self.client.create_monitor(*args, **kwargs)
+        self.created.add(monitor.monitor_id)
+        return monitor
+
+    async def delete_monitor(self, monitor_id: str) -> MonitorDeleted:
+        result = await self.client.delete_monitor(monitor_id)
+        self.created.discard(monitor_id)
+        return result
+
+    async def cleanup(self) -> None:
+        """Delete every monitor a check created and did not delete (the account holds 25)."""
+        for monitor_id in sorted(self.created):
+            await self.call(
+                f"cleanup delete_monitor {monitor_id}",
+                lambda: self.delete_monitor(monitor_id),
+                lambda result: (_expect(result.deleted, "not deleted"), "deleted")[-1],
+            )
 
     def report(self, name: str, error: Optional[str] = None, detail: str = "") -> None:
         if error is None:
@@ -97,15 +127,22 @@ class SmokeRun:
         return result
 
     async def expect_status(
-        self, name: str, make_call: Callable[[], Awaitable[Any]], status: int
+        self,
+        name: str,
+        make_call: Callable[[], Awaitable[Any]],
+        status: int,
+        detail: Optional[str] = None,
     ) -> None:
+        """Expect ``make_call`` to fail with ``status`` (and ``detail`` in the body, if given)."""
         try:
             await make_call()
         except DesearchAPIError as exc:
-            if exc.status == status:
-                self.report(name, detail=f"HTTP {status}")
-            else:
+            if exc.status != status:
                 self.report(name, f"HTTP {exc.status}, expected {status}")
+            elif detail is not None and detail not in (exc.body or ""):
+                self.report(name, f"HTTP {status} without {detail!r}: {exc.body}")
+            else:
+                self.report(name, detail=f"HTTP {status}")
             return
         except Exception as exc:  # noqa: BLE001
             self.report(name, f"{type(exc).__name__}: {exc}")
@@ -144,7 +181,7 @@ async def run_monitors(run: SmokeRun, with_run: bool) -> None:
 
     monitor = await run.call(
         "create_monitor",
-        lambda: client.create_monitor(
+        lambda: run.create_monitor(
             QUERY,
             name="desearch-py e2e",
             criteria=["Announces a new subnet, release or partnership"],
@@ -310,7 +347,7 @@ async def run_monitors(run: SmokeRun, with_run: bool) -> None:
     finally:
         await run.call(
             "delete_monitor",
-            lambda: client.delete_monitor(monitor_id),
+            lambda: run.delete_monitor(monitor_id),
             lambda result: (
                 _expect(isinstance(result, MonitorDeleted) and result.deleted, "not deleted"),
                 "deleted",
@@ -333,6 +370,9 @@ CLEANED = {
     "youtube": ["@OpenAI"],
     "tiktok": ["openai"],
 }
+# X usernames are at most 15 characters; the API refuses longer ones with 422.
+X_NAME_TOO_LONG = "a" * 16
+assert all(len(name) <= 15 for name in CLEANED["x"])
 
 
 TIKTOK_FIELDS = ("views", "likes", "comments", "shares", "duration_s", "thumbnail")
@@ -353,10 +393,18 @@ async def run_watched_accounts(run: SmokeRun, with_run: bool) -> None:
     )
     await run.expect_status(
         "create_monitor bad account name",
-        lambda: client.create_monitor(
+        lambda: run.create_monitor(
             QUERY, sources=["x"], options={"x": {"accounts": ["not a name!"]}}, run_now=False
         ),
         422,
+    )
+    await run.expect_status(
+        "create_monitor X username over 15 characters",
+        lambda: run.create_monitor(
+            QUERY, sources=["x"], options={"x": {"accounts": [X_NAME_TOO_LONG]}}, run_now=False
+        ),
+        422,
+        "is not an X username",
     )
 
     def check(monitor: Monitor) -> str:
@@ -372,7 +420,7 @@ async def run_watched_accounts(run: SmokeRun, with_run: bool) -> None:
 
     monitor = await run.call(
         "create_monitor watched accounts",
-        lambda: client.create_monitor(
+        lambda: run.create_monitor(
             "Model and API launches",
             name="desearch-py e2e accounts",
             sources=sources,
@@ -390,7 +438,7 @@ async def run_watched_accounts(run: SmokeRun, with_run: bool) -> None:
     finally:
         await run.call(
             "delete_monitor watched accounts",
-            lambda: client.delete_monitor(monitor.monitor_id),
+            lambda: run.delete_monitor(monitor.monitor_id),
             lambda result: (_expect(result.deleted, "not deleted"), "deleted")[-1],
         )
 
@@ -440,6 +488,182 @@ async def _run_watched(run: SmokeRun, monitor_id: str) -> None:
     )
 
 
+# desearch-public-api#644. The Ad Library matches keywords, so a meta_ads
+# query is a brand or product, not a sentence.
+SOCIAL_QUERY = "ChatGPT"
+SOCIAL_SOURCES = ["threads", "instagram", "facebook", "meta_ads"]
+SOCIAL = {
+    "threads": {"accounts": ["@zuck", "https://www.threads.com/@mosseri"]},
+    "instagram": {"accounts": ["@openai", "https://www.instagram.com/nasa/"]},
+    "facebook": {
+        "pages": [
+            "https://www.facebook.com/NASA",
+            "https://www.facebook.com/profile.php?id=100064869009429",
+            "https://www.facebook.com/pages/NASA-Earth/123456789012",
+        ]
+    },
+    "meta_ads": {"count": 20},
+}
+SOCIAL_CLEANED = {
+    "threads": {"accounts": ["zuck", "mosseri"]},
+    "instagram": {"accounts": ["openai", "nasa"]},
+    "facebook": {"pages": ["NASA", "100064869009429", "123456789012"]},
+    "meta_ads": {"count": 20},
+}
+# Most one run can cost per watched account or ad (docs/monitors.md): a Threads
+# profile is one request, an Instagram account 12 posts and a Facebook page 10
+# posts at $0.00207 each, and Meta ads meta_ads.count records at $0.00207.
+SOCIAL_UNIT_USD = {"threads": 0.00207, "instagram": 0.02484, "facebook": 0.0207, "meta_ads": 0.00207}
+SOCIAL_UNITS = {"threads": 2, "instagram": 2, "facebook": 3, "meta_ads": 20}
+
+
+def _check_breakdown(breakdown: dict, units: dict) -> str:
+    for source, count in units.items():
+        _expect(source in breakdown, f"no {source} in breakdown {breakdown}")
+        want = round(SOCIAL_UNIT_USD[source] * count, 6)
+        _expect(abs(breakdown[source] - want) < 1e-6, f"{source} ${breakdown[source]}, expected ${want}")
+    return ", ".join(f"{source} ${breakdown[source]}" for source in units)
+
+
+async def run_social_sources(run: SmokeRun) -> None:
+    """Instagram, Facebook, Meta ads and Threads accounts, with no billed run."""
+    client = run.client
+
+    await run.call(
+        "estimate_monitor social sources",
+        lambda: client.estimate_monitor(sources=SOCIAL_SOURCES, options=SOCIAL),
+        lambda e: _check_breakdown(e.breakdown, SOCIAL_UNITS),
+    )
+    # The estimate prices Instagram without accounts as one account instead of refusing it.
+    await run.call(
+        "estimate_monitor instagram without accounts",
+        lambda: client.estimate_monitor(sources=["instagram"]),
+        lambda e: _check_breakdown(e.breakdown, {"instagram": 1}),
+    )
+    await run.expect_status(
+        "create_monitor instagram without accounts",
+        lambda: run.create_monitor(SOCIAL_QUERY, sources=["instagram"], run_now=False),
+        422,
+        "options.instagram.accounts",
+    )
+    await run.expect_status(
+        "create_monitor facebook without pages",
+        lambda: run.create_monitor(
+            SOCIAL_QUERY,
+            sources=["meta_ads", "facebook"],
+            options={"facebook": {"pages": []}},
+            run_now=False,
+        ),
+        422,
+        "options.facebook.pages",
+    )
+
+    def check_created(monitor: Monitor) -> str:
+        _expect(monitor.sources == SOCIAL_SOURCES, f"sources {monitor.sources}")
+        got = {source: monitor.options.get(source) for source in SOCIAL_SOURCES}
+        _expect(got == SOCIAL_CLEANED, f"options {got}")
+        _expect(bool(monitor.webhook_secret), "no webhook_secret")
+        return "names cleaned"
+
+    monitor = await run.call(
+        "create_monitor social sources",
+        lambda: run.create_monitor(
+            SOCIAL_QUERY,
+            name="desearch-py e2e social",
+            sources=SOCIAL_SOURCES,
+            options=SOCIAL,
+            webhook={"url": WEBHOOK_URL},
+            run_now=False,
+        ),
+        check_created,
+    )
+    if monitor is None:
+        return
+    monitor_id = monitor.monitor_id
+
+    def check_no_delivery(m: Monitor) -> str:
+        _expect(m.webhook is not None, "no webhook")
+        _expect("last_delivery" in m.webhook.model_fields_set, "no last_delivery in webhook")
+        _expect(m.webhook.last_delivery is None, f"last_delivery {m.webhook.last_delivery}")
+        return "last_delivery null"
+
+    try:
+        await run.call("get_monitor last_delivery", lambda: client.get_monitor(monitor_id), check_no_delivery)
+        # A test event is not a delivery, so last_delivery stays null.
+        await run.call(
+            "test_monitor_webhook social",
+            lambda: client.test_monitor_webhook(monitor_id),
+            lambda result: f"delivered={result.delivered} status={result.status_code}",
+        )
+        await run.call(
+            "get_monitor last_delivery after webhook test",
+            lambda: client.get_monitor(monitor_id),
+            check_no_delivery,
+        )
+        # PATCH checks the monitor as patched. Options replace the current ones as a whole.
+        await run.expect_status(
+            "update_monitor options without instagram accounts",
+            lambda: client.update_monitor(
+                monitor_id, options={"facebook": SOCIAL["facebook"], "meta_ads": {"count": 10}}
+            ),
+            422,
+            "options.instagram.accounts",
+        )
+        await run.expect_status(
+            "update_monitor options without facebook pages",
+            lambda: client.update_monitor(monitor_id, options={"instagram": SOCIAL["instagram"]}),
+            422,
+            "options.facebook.pages",
+        )
+        await run.call(
+            "update_monitor drop instagram and facebook",
+            lambda: client.update_monitor(
+                monitor_id,
+                sources=["threads", "meta_ads"],
+                options={"threads": SOCIAL["threads"], "meta_ads": {"count": 30}},
+            ),
+            lambda m: (
+                _expect(m.sources == ["threads", "meta_ads"], f"sources {m.sources}"),
+                _expect(m.options.get("meta_ads") == {"count": 30}, f"options {m.options}"),
+                "threads and meta_ads",
+            )[-1],
+        )
+        # Sources from the patch, options from the monitor, which has no instagram now.
+        await run.expect_status(
+            "update_monitor add instagram without accounts",
+            lambda: client.update_monitor(monitor_id, sources=["threads", "meta_ads", "instagram"]),
+            422,
+            "options.instagram.accounts",
+        )
+        for source in (MonitorSource.META_ADS, MonitorSource.INSTAGRAM, MonitorSource.FACEBOOK):
+            await run.call(
+                f"list_monitor_items source={source.value}",
+                lambda: client.list_monitor_items(monitor_id, limit=5, source=source),
+                lambda page: (
+                    _expect(isinstance(page, MonitorItemList), "not a MonitorItemList"),
+                    f"{len(page.items)} items",
+                )[-1],
+            )
+    finally:
+        await run.call(
+            "delete_monitor social sources",
+            lambda: run.delete_monitor(monitor_id),
+            lambda result: (_expect(result.deleted, "not deleted"), "deleted")[-1],
+        )
+
+    def check_ads(ads: Any) -> str:
+        _expect(isinstance(ads, list), f"not a list: {type(ads).__name__}")
+        _expect(0 < len(ads) <= 2, f"{len(ads)} ads")
+        _expect(all(isinstance(ad, FacebookPost) for ad in ads), "not FacebookPost")
+        return f"{len(ads)} ads, first {ads[0].headline or ads[0].text or ads[0].id!r}"
+
+    await run.call(
+        "facebook_search sort=recent",
+        lambda: client.facebook_search(SOCIAL_QUERY, count=2, sort="recent"),
+        check_ads,
+    )
+
+
 async def _collect(iterator: Any) -> list:
     return [item async for item in iterator]
 
@@ -466,6 +690,14 @@ async def main() -> int:
         action="store_true",
         help="also check TikTok and watched accounts (needs desearch-public-api#635)",
     )
+    parser.add_argument(
+        "--with-social",
+        action="store_true",
+        help=(
+            "also check Instagram, Facebook, Meta ads and Threads accounts without a run "
+            "(needs desearch-public-api#644; one billed facebook_search of 2 ads)"
+        ),
+    )
     args = parser.parse_args()
 
     _load_env_file()
@@ -476,9 +708,14 @@ async def main() -> int:
 
     async with Desearch(api_key=api_key, base_url=args.base_url) as client:
         run = SmokeRun(client)
-        await run_monitors(run, args.with_run)
-        if args.with_accounts:
-            await run_watched_accounts(run, args.with_run)
+        try:
+            await run_monitors(run, args.with_run)
+            if args.with_accounts:
+                await run_watched_accounts(run, args.with_run)
+            if args.with_social:
+                await run_social_sources(run)
+        finally:
+            await run.cleanup()
 
     print(f"{run.failures} failure(s) on {args.base_url}", flush=True)
     return 1 if run.failures else 0

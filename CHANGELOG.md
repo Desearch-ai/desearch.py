@@ -13,14 +13,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 > Waits for the Monitors API release (desearch-public-api#625 and #630, on
 > api-dev only, plus #635 and its console migration for TikTok and watched
-> accounts). Until then the production API returns 404 for these routes.
+> accounts, and #644 and its console migration for Instagram, Facebook, Meta
+> ads, Threads accounts and `webhook.last_delivery`). Until then the
+> production API returns 404 for these routes.
 > 1.12.0 is the Company Search budget release (desearch.py#40); if this lands
 > first, ship it as 1.12.0 instead.
 
 ### Added
 
-- **Monitors**: searches that run on a schedule over web, X, Reddit, YouTube
-  and Threads and keep only new items Jev screens as relevant.
+- **Monitors**: searches that run on a schedule over web, X, Reddit, YouTube,
+  Threads, TikTok and Meta ads, or read watched accounts (also on Instagram
+  and Facebook), and keep only new items Jev screens as relevant.
   `create_monitor`, `estimate_monitor`, `list_monitors`, `get_monitor`,
   `update_monitor` (only the given fields are sent; `remove_webhook=True`
   sends `webhook: null`), `pause_monitor`, `resume_monitor`,
@@ -34,6 +37,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `MonitorYouTubeOptions`, `MonitorTikTokOptions`; at most 10 each). A TikTok
   keyword monitor finds a new video only when it reaches TikTok's top results;
   to follow creators, watch their accounts.
+- Instagram, Facebook and Meta ads as monitor sources (`MonitorSource.INSTAGRAM`,
+  `FACEBOOK`, `META_ADS`) and Threads watched accounts, following
+  desearch-public-api#644: `options.instagram.accounts` and
+  `options.facebook.pages` (1-10 each; those sources only read watched
+  accounts, so create and update return 422 without any),
+  `options.meta_ads.count` (10, 20 or 30 Ad Library results per run; the
+  query should be a keyword) and `options.threads.accounts`
+  (`MonitorInstagramOptions`, `MonitorFacebookOptions`,
+  `MonitorMetaAdsOptions`, `MonitorThreadsOptions`). The docs list the item
+  `data` fields of each (Threads `likes`; Instagram `likes`, `comments`,
+  `views`, `media_type`, `thumbnail`; Facebook `reactions`, `comments`,
+  `shares`; Meta ads `page`, `active`, `cta`, `link`, `platforms`,
+  `thumbnail`) and `signals["criteria"]`.
+- `Monitor.webhook.last_delivery`, a `MonitorWebhookDelivery` (`event`,
+  `status` `pending`/`delivered`/`failed`, `attempts`, `status_code`, `error`,
+  `created_at`, `next_attempt_at`, `delivered_at`), `None` before the first
+  delivery.
+- `facebook_search(..., sort=...)`: `impressions` (the API default) or
+  `recent`, which puts recently started ads first.
 - `wait_for_monitor_run` (raises `MonitorRunTimeoutError`) and
   `iter_monitor_items`, which follows `next_cursor`.
 - `verify_webhook_signature(secret, header, body)` in `desearch_py.webhooks`,
@@ -49,12 +71,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   models `MonitorCreateRequest`, `MonitorUpdateRequest`,
   `MonitorEstimateRequest`, `MonitorOptions`, `MonitorWebOptions`,
   `MonitorXOptions`, `MonitorRedditOptions`, `MonitorYouTubeOptions`,
-  `MonitorTikTokOptions` and `MonitorWebhookConfig`; enums `MonitorSource`,
+  `MonitorTikTokOptions`, `MonitorThreadsOptions`, `MonitorInstagramOptions`,
+  `MonitorFacebookOptions`, `MonitorMetaAdsOptions` and
+  `MonitorWebhookConfig`; `MonitorWebhookDelivery`; enums `MonitorSource`,
   `MonitorInterval`, `MonitorEvent`, `MonitorStatus` and `MonitorRunStatus`;
   and `MONITOR_RUN_ENDED_STATUSES`.
 - `scripts/e2e_monitors.py`, a live smoke test of every Monitors method
   (`--base-url`, `--key-env`, `--with-run` for one billed run, `--with-accounts`
-  for TikTok and watched accounts; not run by CI).
+  for TikTok and watched accounts, `--with-social` for Instagram, Facebook,
+  Meta ads and Threads accounts without a run; it deletes every monitor it
+  creates; not run by CI).
 
 ## [1.11.0] - unreleased (not yet published to PyPI)
 

@@ -28,6 +28,7 @@ from desearch_py import (
     MonitorSource,
     MonitorStatus,
     MonitorOptions,
+    MonitorWebhookDelivery,
     MonitorWebhookEvent,
     MonitorWebhookSecret,
     MonitorWebhookTest,
@@ -102,6 +103,16 @@ def _monitor(**extra):
             "url": "https://example.com/hooks/desearch",
             "events": ["monitor.items.found", "monitor.run.failed"],
             "consecutive_failures": 0,
+            "last_delivery": {
+                "event": "monitor.items.found",
+                "status": "delivered",
+                "attempts": 1,
+                "status_code": 200,
+                "error": None,
+                "created_at": "2026-11-03T09:00:41Z",
+                "next_attempt_at": None,
+                "delivered_at": "2026-11-03T09:00:42Z",
+            },
         },
         "metadata": {"team": "growth"},
         "max_run_cost_usd": 0.0098,
@@ -282,6 +293,53 @@ class MonitorCrudTests(_ClientTestCase):
             },
         )
 
+    async def test_create_sends_instagram_facebook_meta_ads_and_threads_accounts(self):
+        options = {
+            "threads": {"accounts": ["@zuck", "https://www.threads.com/@mosseri"]},
+            "instagram": {"accounts": ["@openai", "https://www.instagram.com/nasa/"]},
+            "facebook": {
+                "pages": [
+                    "https://www.facebook.com/NASA",
+                    "https://www.facebook.com/profile.php?id=100064869009429",
+                ]
+            },
+            "meta_ads": {"count": 20},
+        }
+        cleaned = {
+            "threads": {"accounts": ["zuck", "mosseri"]},
+            "instagram": {"accounts": ["openai", "nasa"]},
+            "facebook": {"pages": ["NASA", "100064869009429"]},
+            "meta_ads": {"count": 20},
+        }
+        sources = ["threads", "instagram", "facebook", "meta_ads"]
+        body = _monitor(query="ChatGPT", sources=sources, options=cleaned, min_score=0)
+        client = self.make_client(FakeResponse(json_data=body, status=201))
+        monitor = await client.create_monitor(
+            "ChatGPT",
+            sources=[
+                MonitorSource.THREADS,
+                MonitorSource.INSTAGRAM,
+                MonitorSource.FACEBOOK,
+                MonitorSource.META_ADS,
+            ],
+            options=options,
+            min_score=0,
+            run_now=False,
+        )
+        self.assertEqual(monitor.sources, sources)
+        self.assertEqual(monitor.options["facebook"]["pages"], ["NASA", "100064869009429"])
+        self.assertEqual(monitor.options["meta_ads"], {"count": 20})
+        self.assertEqual(
+            self.request(client)[2]["json"],
+            {
+                "query": "ChatGPT",
+                "sources": sources,
+                "options": options,
+                "min_score": 0,
+                "run_now": False,
+            },
+        )
+
     def test_typed_options_carry_every_source(self):
         options = MonitorOptions.model_validate(
             {
@@ -289,22 +347,70 @@ class MonitorCrudTests(_ClientTestCase):
                 "reddit": {"subreddits": ["LocalLLaMA"]},
                 "youtube": {"channels": ["@OpenAI"]},
                 "tiktok": {"count": 30, "accounts": ["openai"]},
-                "threads": {},
+                "threads": {"accounts": ["zuck"]},
+                "instagram": {"accounts": ["openai"]},
+                "facebook": {"pages": ["NASA", "100064869009429"]},
+                "meta_ads": {"count": 10},
             }
         )
         self.assertEqual(options.x.accounts, ["OpenAI"])
         self.assertEqual(options.reddit.subreddits, ["LocalLLaMA"])
         self.assertEqual(options.youtube.channels, ["@OpenAI"])
         self.assertEqual((options.tiktok.count, options.tiktok.accounts), (30, ["openai"]))
+        self.assertEqual(options.threads.accounts, ["zuck"])
+        self.assertEqual(options.instagram.accounts, ["openai"])
+        self.assertEqual(options.facebook.pages, ["NASA", "100064869009429"])
+        self.assertEqual(options.meta_ads.count, 10)
         self.assertEqual(
             options.model_dump(exclude_none=True),
             {
                 "x": {"accounts": ["OpenAI"]},
                 "reddit": {"subreddits": ["LocalLLaMA"]},
                 "youtube": {"channels": ["@OpenAI"]},
+                "threads": {"accounts": ["zuck"]},
                 "tiktok": {"count": 30, "accounts": ["openai"]},
-                "threads": {},
+                "instagram": {"accounts": ["openai"]},
+                "facebook": {"pages": ["NASA", "100064869009429"]},
+                "meta_ads": {"count": 10},
             },
+        )
+        # An empty source entry stays empty, as before.
+        self.assertEqual(
+            MonitorOptions.model_validate({"threads": {}, "meta_ads": {}}).model_dump(exclude_none=True),
+            {"threads": {}, "meta_ads": {}},
+        )
+
+    async def test_instagram_or_facebook_without_accounts_is_the_api_422(self):
+        # The SDK leaves this check to the API: create answers with a
+        # validation list, update with a plain detail.
+        create_body = {
+            "detail": [
+                {
+                    "loc": ["body"],
+                    "msg": "Value error, Instagram watches accounts: add at least one in options.instagram.accounts",
+                    "type": "value_error",
+                }
+            ]
+        }
+        update_body = {"detail": "Facebook watches pages: add at least one in options.facebook.pages"}
+        client = self.make_client(
+            FakeResponse(json_data=create_body, status=422, reason="Unprocessable Entity"),
+            FakeResponse(json_data=update_body, status=422, reason="Unprocessable Entity"),
+        )
+        with self.assertRaises(DesearchAPIError) as created:
+            await client.create_monitor(QUERY, sources=[MonitorSource.INSTAGRAM], run_now=False)
+        self.assertEqual(created.exception.status, 422)
+        self.assertIn("options.instagram.accounts", created.exception.body)
+        with self.assertRaises(DesearchAPIError) as updated:
+            await client.update_monitor(MONITOR_ID, options={"instagram": {"accounts": ["openai"]}})
+        self.assertEqual(updated.exception.status, 422)
+        self.assertIn("options.facebook.pages", updated.exception.body)
+        self.assertEqual(
+            self.request(client, 0)[2]["json"],
+            {"query": QUERY, "sources": ["instagram"], "run_now": False},
+        )
+        self.assertEqual(
+            self.request(client, 1)[2]["json"], {"options": {"instagram": {"accounts": ["openai"]}}}
         )
 
     async def test_bad_account_names_are_the_api_422(self):
@@ -341,6 +447,40 @@ class MonitorCrudTests(_ClientTestCase):
         self.assertEqual((method, url), ("POST", "https://example.test/desearch/monitors/estimate"))
         self.assertEqual(kwargs["json"], {"sources": ["x", "web"], "summary": False, "interval": "1d"})
 
+    async def test_estimate_breaks_down_the_new_sources(self):
+        # docs/monitors.md prices: a Threads profile is one request, an
+        # Instagram account 12 posts, a Facebook page 10 posts, Meta ads
+        # meta_ads.count records.
+        estimate = {
+            "max_run_cost_usd": 0.14,
+            "runs_per_month": 30,
+            "max_monthly_cost_usd": 4.2,
+            "breakdown": {
+                "threads": 0.00207,
+                "instagram": 0.04968,
+                "facebook": 0.0207,
+                "meta_ads": 0.0621,
+                "screening": 0.00505,
+            },
+        }
+        options = {
+            "threads": {"accounts": ["zuck"]},
+            "instagram": {"accounts": ["openai", "nasa"]},
+            "facebook": {"pages": ["NASA"]},
+            "meta_ads": {"count": 30},
+        }
+        client = self.make_client(FakeResponse(json_data=estimate))
+        result = await client.estimate_monitor(
+            sources=[MonitorSource.THREADS, "instagram", MonitorSource.FACEBOOK, MonitorSource.META_ADS],
+            options=options,
+        )
+        self.assertEqual(result.breakdown["instagram"], 0.04968)
+        self.assertEqual(result.breakdown["meta_ads"], 0.0621)
+        self.assertEqual(
+            self.request(client)[2]["json"],
+            {"sources": ["threads", "instagram", "facebook", "meta_ads"], "options": options},
+        )
+
     async def test_list_sends_joined_statuses_limit_and_cursor(self):
         page = {"monitors": [_monitor()], "next_cursor": "abc"}
         client = self.make_client(FakeResponse(json_data=page))
@@ -360,6 +500,42 @@ class MonitorCrudTests(_ClientTestCase):
         self.assertEqual(result.monitors, [])
         self.assertIsNone(result.next_cursor)
         self.assertEqual(self.request(client)[2]["params"], {})
+
+    async def test_webhook_last_delivery_is_typed(self):
+        pending = {
+            "event": "monitor.items.found",
+            "status": "pending",
+            "attempts": 2,
+            "status_code": 503,
+            "error": "HTTP 503",
+            "created_at": "2026-11-03T09:00:41Z",
+            "next_attempt_at": "2026-11-03T09:06:41Z",
+            "delivered_at": None,
+        }
+        fresh = {"url": "https://example.com/hooks/desearch", "events": ["monitor.items.found"], "consecutive_failures": 0, "last_delivery": None}
+        older_api = {"url": "https://example.com/hooks/desearch", "events": ["monitor.items.found"]}
+        webhook = dict(fresh, last_delivery=pending)
+        client = self.make_client(
+            FakeResponse(json_data=_monitor()),
+            FakeResponse(json_data=_monitor(webhook=webhook)),
+            FakeResponse(json_data=_monitor(webhook=fresh)),
+            FakeResponse(json_data=_monitor(webhook=older_api)),
+        )
+        delivered = (await client.get_monitor(MONITOR_ID)).webhook.last_delivery
+        self.assertIsInstance(delivered, MonitorWebhookDelivery)
+        self.assertEqual(
+            (delivered.event, delivered.status, delivered.attempts, delivered.status_code),
+            ("monitor.items.found", "delivered", 1, 200),
+        )
+        self.assertEqual(delivered.delivered_at, "2026-11-03T09:00:42Z")
+        retrying = (await client.get_monitor(MONITOR_ID)).webhook.last_delivery
+        self.assertEqual((retrying.status, retrying.status_code, retrying.error), ("pending", 503, "HTTP 503"))
+        self.assertEqual(retrying.next_attempt_at, "2026-11-03T09:06:41Z")
+        self.assertIsNone(retrying.delivered_at)
+        new_webhook = (await client.get_monitor(MONITOR_ID)).webhook
+        self.assertIsNone(new_webhook.last_delivery)
+        self.assertIn("last_delivery", new_webhook.model_fields_set)
+        self.assertIsNone((await client.get_monitor(MONITOR_ID)).webhook.last_delivery)
 
     async def test_get_quotes_the_monitor_id(self):
         client = self.make_client(FakeResponse(json_data=_monitor()))
@@ -446,7 +622,8 @@ class MonitorCrudTests(_ClientTestCase):
 
     def test_enums_match_the_api_values(self):
         self.assertEqual(
-            [s.value for s in MonitorSource], ["web", "x", "reddit", "youtube", "threads", "tiktok"]
+            [s.value for s in MonitorSource],
+            ["web", "x", "reddit", "youtube", "threads", "tiktok", "instagram", "facebook", "meta_ads"],
         )
         self.assertEqual([i.value for i in MonitorInterval], ["1h", "3h", "6h", "12h", "1d", "7d"])
         self.assertEqual(
@@ -575,6 +752,67 @@ class MonitorItemTests(_ClientTestCase):
         self.assertEqual(page.items[0].data["duration_s"], 42)
         self.assertEqual(page.items[1].data["account"], "LocalLLaMA")
         self.assertEqual(self.request(client)[2]["params"], {"source": "tiktok"})
+
+    async def test_items_from_the_social_sources_and_meta_ads_keep_their_data(self):
+        # Meta ads: the headline is the title, url the Ad Library record and
+        # data.link the landing page; ads are screened without new_info.
+        ad = _item(
+            "2004",
+            source="meta_ads",
+            url="https://www.facebook.com/ads/library/?id=1234567890",
+            title="Try ChatGPT Plus",
+            text="Get faster answers.",
+            signals={"relevant": 0.96, "criteria": 0.9},
+            data={
+                "page": "OpenAI",
+                "active": True,
+                "cta": "Learn more",
+                "link": "https://chatgpt.com/",
+                "platforms": ["facebook", "instagram"],
+                "thumbnail": "https://scontent.xx.fbcdn.net/ad.jpg",
+            },
+        )
+        instagram = _item(
+            "2003",
+            source="instagram",
+            data={
+                "account": "openai",
+                "likes": 5400,
+                "comments": 120,
+                "views": 90000,
+                "media_type": "video",
+                "thumbnail": "https://scontent.cdninstagram.com/cover.jpg",
+            },
+        )
+        facebook = _item("2002", source="facebook", data={"account": "NASA", "reactions": 3100, "comments": 210, "shares": 95})
+        threads = _item(
+            "2001",
+            source="threads",
+            signals={"relevant": 0.8, "new_info": 0.7, "criteria": 0.75},
+            data={"account": "zuck", "likes": 4200},
+        )
+        page = {"items": [ad, instagram, facebook, threads], "next_cursor": None}
+        client = self.make_client(FakeResponse(json_data=page))
+        result = await client.list_monitor_items(MONITOR_ID, source=MonitorSource.META_ADS)
+        by_source = {item.source: item for item in result.items}
+        self.assertEqual(by_source["meta_ads"].title, "Try ChatGPT Plus")
+        self.assertEqual(by_source["meta_ads"].data["link"], "https://chatgpt.com/")
+        self.assertEqual(by_source["meta_ads"].data["platforms"], ["facebook", "instagram"])
+        self.assertNotIn("new_info", by_source["meta_ads"].signals)
+        self.assertEqual(by_source["meta_ads"].signals["criteria"], 0.9)
+        self.assertEqual(by_source["instagram"].data["media_type"], "video")
+        self.assertEqual(by_source["facebook"].data["reactions"], 3100)
+        self.assertEqual(by_source["threads"].data["likes"], 4200)
+        self.assertEqual(by_source["threads"].signals["criteria"], 0.75)
+        self.assertEqual(self.request(client)[2]["params"], {"source": "meta_ads"})
+        for source in (MonitorSource.INSTAGRAM, MonitorSource.FACEBOOK, "threads"):
+            with self.subTest(source=source):
+                client = self.make_client(FakeResponse(json_data={"items": [], "next_cursor": None}))
+                await client.list_monitor_items(MONITOR_ID, source=source)
+                self.assertEqual(
+                    self.request(client)[2]["params"],
+                    {"source": source.value if isinstance(source, MonitorSource) else source},
+                )
 
     async def test_iter_items_follows_cursors_until_the_last_page(self):
         client = self.make_client(

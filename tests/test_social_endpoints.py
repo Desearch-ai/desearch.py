@@ -211,11 +211,11 @@ CASES = (
     ),
     (
         "facebook_search",
-        {"query": "running", "count": 3, "cursor": CURSOR},
+        {"query": "running", "count": 3, "cursor": CURSOR, "sort": "recent"},
         "POST",
         "/desearch/facebook/search",
         None,
-        {"query": "running", "count": 3, "cursor": CURSOR},
+        {"query": "running", "count": 3, "cursor": CURSOR, "sort": "recent"},
         [FACEBOOK_POST],
         FacebookPost,
         True,
@@ -587,6 +587,11 @@ class SocialRequestTests(unittest.IsolatedAsyncioTestCase):
                     parameters["include_metadata"].kind,
                     inspect.Parameter.KEYWORD_ONLY,
                 )
+        # facebook_search's sort comes after the arguments it already had, so
+        # positional calls keep working; impressions is the API default.
+        parameters = inspect.signature(Desearch.facebook_search).parameters
+        self.assertEqual(list(parameters)[:5], ["self", "query", "count", "cursor", "sort"])
+        self.assertIsNone(parameters["sort"].default)
         # Instagram search does not paginate (any cursor is a 422) and TikTok
         # trending has no cursor parameter.
         for name in ("instagram_search", "tiktok_trending"):

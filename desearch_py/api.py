@@ -1557,6 +1557,7 @@ class Desearch:
         query: str,
         count: Optional[int] = None,
         cursor: Optional[str] = None,
+        sort: Optional[str] = None,
         *,
         include_metadata: bool = False,
     ) -> Union[
@@ -1575,7 +1576,10 @@ class Desearch:
             count (Optional[int]): Maximum number of records (1-100; the API default is 10).
                 The provider page may be smaller.
             cursor (Optional[str]): ``next_cursor`` from the previous page's metadata,
-                sent back unchanged with the same ``query``. Omit it for the first page.
+                sent back unchanged with the same ``query`` and ``sort``. Omit it for the first page.
+            sort (Optional[str]): ``impressions`` (the API default: most seen first) or
+                ``recent`` (Meta's monthly relevance grouping, which puts recently started
+                ads first).
 
         Returns:
             Union[List[FacebookPost], Dict[str, Any]]: One page of records, or the raw body when it is not a list.
@@ -1587,6 +1591,7 @@ class Desearch:
                 "query": query,
                 "count": count,
                 "cursor": cursor,
+                "sort": sort,
             }.items()
             if v is not None
         }
@@ -3864,14 +3869,17 @@ class Desearch:
             criteria (Optional[List[str]]): Up to 5 conditions an item must meet to be kept
                 (each at most 300 characters).
             sources (Optional[List[Union[MonitorSource, str]]]): Any of ``web``, ``x``,
-                ``reddit``, ``youtube``, ``threads``, ``tiktok``. The API default is web and x.
+                ``reddit``, ``youtube``, ``threads``, ``tiktok``, ``instagram``, ``facebook``,
+                ``meta_ads``. The API default is web and x.
             interval (Optional[Union[MonitorInterval, str]]): ``1h``, ``3h``, ``6h``, ``12h``,
                 ``1d`` (the API default) or ``7d``.
             options (Optional[Union[MonitorOptions, Dict[str, Any]]]): Per source:
                 ``web.count`` (10, 15 or 20), ``x.count`` (1-100), ``x.lang``, ``x.min_likes``,
-                ``tiktok.count`` (10, 20 or 30), and up to 10 watched accounts per source
-                (``x.accounts``, ``reddit.subreddits``, ``youtube.channels``,
-                ``tiktok.accounts``), read instead of searching.
+                ``tiktok.count`` and ``meta_ads.count`` (10, 20 or 30), and up to 10 watched
+                accounts per source (``x.accounts``, ``reddit.subreddits``,
+                ``youtube.channels``, ``tiktok.accounts``, ``threads.accounts``), read instead
+                of searching. ``instagram`` and ``facebook`` only read watched accounts and
+                need at least one in ``instagram.accounts`` or ``facebook.pages``.
             min_score (Optional[int]): Relevance (0-100) an item needs to be kept (the API
                 default is 60).
             summary (Optional[bool]): Write a short digest of the items each run keeps.
@@ -3885,8 +3893,10 @@ class Desearch:
             it is not returned again.
 
         Raises:
-            DesearchAPIError: 402 when the balance cannot hold one run, 409 when the account
-                already has 25 monitors.
+            DesearchAPIError: 402 when the balance cannot hold one run (also with
+                ``run_now=False``), 409 when the account already has 25 monitors, 422 when a
+                value is invalid, including ``instagram`` or ``facebook`` without watched
+                accounts.
         """
         request = MonitorCreateRequest.model_validate(
             {
@@ -3926,6 +3936,8 @@ class Desearch:
         Args:
             sources (Optional[List[Union[MonitorSource, str]]]): As in :meth:`create_monitor`.
             options (Optional[Union[MonitorOptions, Dict[str, Any]]]): As in :meth:`create_monitor`.
+                Unlike create, ``instagram`` and ``facebook`` without watched accounts are
+                priced as one account instead of refused.
             summary (Optional[bool]): Whether runs write a summary.
             interval (Optional[Union[MonitorInterval, str]]): How often it runs.
 
@@ -4032,7 +4044,10 @@ class Desearch:
         failing webhook. ``options`` and ``webhook`` replace the current value
         as a whole (a ``webhook`` without ``events`` gets the default events),
         so read the monitor first to change one part of them. A new webhook URL
-        gets a new signing secret, returned as ``webhook_secret``.
+        gets a new signing secret, returned as ``webhook_secret``. The monitor
+        as changed (``sources`` and ``options`` from this call, else its
+        current ones) must still watch at least one account for ``instagram``
+        and ``facebook``; the API returns 422 otherwise.
 
         Args:
             monitor_id (Union[str, UUID]): The monitor.
@@ -4229,7 +4244,8 @@ class Desearch:
             monitor_id (Union[str, UUID]): The monitor.
             limit (Optional[int]): Page size (1-200; the API default is 50).
             cursor (Optional[str]): ``next_cursor`` from the previous page.
-            source (Optional[Union[MonitorSource, str]]): Only items from this source.
+            source (Optional[Union[MonitorSource, str]]): Only items from this source, any
+                ``MonitorSource`` value (``meta_ads`` for Meta ads); another value is a 400.
 
         Returns:
             MonitorItemList: Items and the cursor for the next page (``None`` on the last page).
@@ -4358,7 +4374,8 @@ class Desearch:
 
         Args:
             monitor_id (Union[str, UUID]): The monitor.
-            source (Optional[Union[MonitorSource, str]]): Only items from this source.
+            source (Optional[Union[MonitorSource, str]]): Only items from this source, any
+                ``MonitorSource`` value (``meta_ads`` for Meta ads); another value is a 400.
             cursor (Optional[str]): Start after this cursor instead of the newest item.
             page_size (int): Items per request (1-200). Defaults to 50.
 

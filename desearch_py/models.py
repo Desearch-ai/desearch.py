@@ -223,7 +223,12 @@ class CompanyEmailStatus(str, Enum):
 
 
 class MonitorSource(str, Enum):
-    """Where a monitor looks (``sources``). The API default is ``WEB`` and ``X``."""
+    """Where a monitor looks (``sources``). The API default is ``WEB`` and ``X``.
+
+    ``INSTAGRAM`` and ``FACEBOOK`` only read watched accounts
+    (``options.instagram.accounts``, ``options.facebook.pages``) and need at
+    least one. ``META_ADS`` searches the Meta Ad Library by keyword.
+    """
 
     WEB = "web"
     X = "x"
@@ -231,6 +236,9 @@ class MonitorSource(str, Enum):
     YOUTUBE = "youtube"
     THREADS = "threads"
     TIKTOK = "tiktok"
+    INSTAGRAM = "instagram"
+    FACEBOOK = "facebook"
+    META_ADS = "meta_ads"
 
 
 class MonitorInterval(str, Enum):
@@ -2181,10 +2189,11 @@ class CompanyResultsPage(BaseModel):
 # Bodies for POST /desearch/monitors, PATCH /desearch/monitors/{monitor_id} and
 # POST /desearch/monitors/estimate. The API validates ranges (query 3-500
 # characters, at most 5 criteria of 300 characters, min_score 0-100, web.count
-# 10/15/20, x.count 1-100, at most 20 metadata keys of 64 characters with string
-# values of at most 500, at most 10 watched accounts per source with valid names)
-# and that the webhook URL is HTTPS on a public address; it returns 400 or 422
-# otherwise.
+# 10/15/20, x.count 1-100, tiktok.count and meta_ads.count 10/20/30, at most 20
+# metadata keys of 64 characters with string values of at most 500, at most 10
+# watched accounts per source with valid names, and at least one watched account
+# for instagram and facebook on create and update) and that the webhook URL is
+# HTTPS on a public address; it returns 400 or 422 otherwise.
 
 
 class MonitorWebOptions(BaseModel):
@@ -2248,12 +2257,63 @@ class MonitorTikTokOptions(BaseModel):
     accounts: Optional[List[str]] = None
 
 
+class MonitorThreadsOptions(BaseModel):
+    """``accounts``: up to 10 Threads usernames to watch (``zuck``, ``@zuck``
+    or a profile URL); each run then reads every profile's newest posts
+    instead of searching. Threads keyword search returns loosely matched
+    posts, so watching accounts works better. The API returns the names
+    cleaned (``zuck``)."""
+
+    model_config = ConfigDict(extra="allow")
+
+    accounts: Optional[List[str]] = None
+
+
+class MonitorInstagramOptions(BaseModel):
+    """``accounts``: 1-10 Instagram usernames to watch (``openai``,
+    ``@openai`` or a profile URL). Instagram has no keyword search here, so
+    the ``instagram`` source needs at least one (the API returns 422
+    otherwise). Each run reads up to 12 newest posts per account. The API
+    returns the names cleaned (``openai``)."""
+
+    model_config = ConfigDict(extra="allow")
+
+    accounts: Optional[List[str]] = None
+
+
+class MonitorFacebookOptions(BaseModel):
+    """``pages``: 1-10 Facebook pages to watch (``NASA``, a numeric page ID or
+    a page URL). Facebook has no keyword search for posts, so the
+    ``facebook`` source needs at least one (the API returns 422 otherwise);
+    for ads by keyword use ``meta_ads``. Each run reads up to 10 newest posts
+    per page. The API returns a page name or numeric ID; ``profile.php?id=…``
+    and ``/pages/Name/123…`` URLs become the ID."""
+
+    model_config = ConfigDict(extra="allow")
+
+    pages: Optional[List[str]] = None
+
+
+class MonitorMetaAdsOptions(BaseModel):
+    """``count``: Meta Ad Library results read per run, 10, 20 or 30 (the API
+    default is 10). The Ad Library matches keywords, so the monitor's
+    ``query`` should be a brand, product or short phrase (``ChatGPT``); a
+    sentence finds nothing. It has no date filter: an ad is new the first time
+    a run sees it, if it started within the last 30 days."""
+
+    model_config = ConfigDict(extra="allow")
+
+    count: Optional[int] = None
+
+
 class MonitorOptions(BaseModel):
-    """Per-source settings. ``threads`` has none yet.
+    """Per-source settings.
 
     With watched accounts (``x.accounts``, ``reddit.subreddits``,
-    ``youtube.channels``, ``tiktok.accounts``) a source reads those accounts
-    instead of searching. The ``query`` and ``criteria`` still decide what is
+    ``youtube.channels``, ``tiktok.accounts``, ``threads.accounts``) a source
+    reads those accounts instead of searching. ``instagram`` and ``facebook``
+    only read watched accounts (``instagram.accounts``, ``facebook.pages``)
+    and need at least one. The ``query`` and ``criteria`` still decide what is
     kept; ``min_score=0`` keeps every new post. An account that cannot be read
     is listed in the run's ``stats["sources"][<source>]["accounts_failed"]``.
     """
@@ -2264,7 +2324,11 @@ class MonitorOptions(BaseModel):
     x: Optional[MonitorXOptions] = None
     reddit: Optional[MonitorRedditOptions] = None
     youtube: Optional[MonitorYouTubeOptions] = None
+    threads: Optional[MonitorThreadsOptions] = None
     tiktok: Optional[MonitorTikTokOptions] = None
+    instagram: Optional[MonitorInstagramOptions] = None
+    facebook: Optional[MonitorFacebookOptions] = None
+    meta_ads: Optional[MonitorMetaAdsOptions] = None
 
 
 class MonitorWebhookConfig(BaseModel):
@@ -2366,16 +2430,38 @@ class MonitorEstimateRequest(BaseModel):
 # fields so a newer API does not break older clients.
 
 
+class MonitorWebhookDelivery(BaseModel):
+    """The newest delivery to a monitor's webhook. ``status`` is ``pending``
+    (waiting for its first or next attempt at ``next_attempt_at``, with the
+    last answer in ``status_code`` and ``error``), ``delivered``, or
+    ``failed`` (every retry used). ``event`` is a ``MonitorEvent`` value.
+    Test events from :meth:`Desearch.test_monitor_webhook` are not
+    deliveries and do not change it."""
+
+    model_config = ConfigDict(extra="allow")
+
+    event: str
+    status: str
+    attempts: int = 0
+    status_code: Optional[int] = None
+    error: Optional[str] = None
+    created_at: Optional[str] = None
+    next_attempt_at: Optional[str] = None
+    delivered_at: Optional[str] = None
+
+
 class MonitorWebhook(BaseModel):
     """A monitor's webhook. ``consecutive_failures`` counts deliveries in a row
     that failed every attempt; at 5 the monitor pauses with ``paused_reason``
-    ``webhook_failing``."""
+    ``webhook_failing``. ``last_delivery`` is the newest delivery, ``None``
+    before the first."""
 
     model_config = ConfigDict(extra="allow")
 
     url: str
     events: List[str] = Field(default_factory=list)
     consecutive_failures: int = 0
+    last_delivery: Optional[MonitorWebhookDelivery] = None
 
 
 class MonitorLastRun(BaseModel):
@@ -2442,13 +2528,21 @@ class MonitorList(BaseModel):
 
 class MonitorItem(BaseModel):
     """An item a monitor kept. ``score`` (0-100) is the lowest of ``relevant``
-    and the criteria; ``signals`` holds ``relevant`` and ``new_info`` (0-1).
+    and the criteria; ``signals`` holds ``relevant`` and ``new_info`` (0-1),
+    plus ``criteria`` (the lowest answer across the criteria) when the monitor
+    has criteria. Meta ads are screened with their own relevance question and
+    have no ``new_info``.
     ``data`` holds source fields: X ``likes``, ``reposts``, ``replies``,
     ``views``; Reddit ``subreddit``, ``score``, ``comments``; YouTube
     ``channel``, ``views``, ``thumbnail``; TikTok ``views``, ``likes``,
-    ``comments``, ``shares``, ``duration_s``, ``thumbnail`` (TikTok thumbnail
-    URLs expire); web ``highlights``, ``domain``. An item read from a watched
-    account also has ``account``, the name it was watched as."""
+    ``comments``, ``shares``, ``duration_s``, ``thumbnail``; Threads
+    ``likes``; Instagram ``likes``, ``comments``, ``views``, ``media_type``,
+    ``thumbnail``; Facebook ``reactions``, ``comments``, ``shares``; Meta ads
+    ``page``, ``active``, ``cta``, ``link`` (the ad's landing page),
+    ``platforms``, ``thumbnail``, with the ad headline as ``title`` and
+    ``url`` the Ad Library record; web ``highlights``, ``domain``. TikTok and
+    Instagram thumbnail URLs expire. An item read from a watched account also
+    has ``account``, the name it was watched as."""
 
     model_config = ConfigDict(extra="allow")
 

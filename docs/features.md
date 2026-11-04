@@ -113,7 +113,7 @@ List methods return one page. `count` is a maximum (1-100). With `include_metada
 | `instagram_profile_posts` | `GET /desearch/instagram/profile/{username}/posts` | ✅ | `count`, `cursor`. `List[InstagramMedia]`. |
 | `instagram_comments` | `GET /desearch/instagram/comments/{shortcode}` | ✅ | `count`, `cursor`. Shortcode only; numeric IDs return 404. `List[InstagramComment]`. |
 | `instagram_hashtag` | `GET /desearch/instagram/hashtag/{tag}` | ✅ | `count`, `cursor`. `List[InstagramMedia]`. |
-| `facebook_search` | `POST /desearch/facebook/search` | ✅ | Meta Ad Library records. `query`, `count`, `cursor`. `List[FacebookPost]`. |
+| `facebook_search` | `POST /desearch/facebook/search` | ✅ | Meta Ad Library records. `query`, `count`, `cursor`, `sort` (`impressions`, the API default, or `recent`). `List[FacebookPost]`. |
 | `facebook_post_by_id` | `GET /desearch/facebook/post/{id}` | ✅ | `FacebookPost`. |
 | `facebook_profile` | `GET /desearch/facebook/profile/{profile_id}` | ✅ | `FacebookProfile`. |
 | `facebook_profile_posts` | `GET /desearch/facebook/profile/{profile_id}/posts` | ✅ | `count`, `cursor`. `List[FacebookPost]`. |
@@ -213,20 +213,20 @@ Company Search and Company Enrich run as background tasks on the People Search e
 
 ## Monitors features
 
-A monitor reruns a search (or reads up to 10 watched accounts per source) over web, X, Reddit, YouTube, Threads, and TikTok on a schedule and keeps only new items that Jev screens as relevant. Every route is free; each run is billed for its searches at list price, Jev screening per item screened, and the optional summary's LLM usage plus 50%.
+A monitor reruns a search over web, X, Reddit, YouTube, Threads, TikTok, and the Meta Ad Library (or reads up to 10 watched accounts per source, including Instagram accounts and Facebook pages, which only watch accounts) on a schedule and keeps only new items that Jev screens as relevant. Every route is free; each run is billed for its searches at list price, Jev screening per item screened, and the optional summary's LLM usage plus 50%.
 
 | Method | Endpoint | Status | Notes |
 |---|---|---|---|
-| `create_monitor` | `POST /desearch/monitors` | ✅ | `query`, `name`, `criteria`, `sources` (`MonitorSource`), `interval` (`MonitorInterval`), `options` (dict or `MonitorOptions`, including watched accounts `x.accounts`, `reddit.subreddits`, `youtube.channels`, `tiktok.accounts`), `min_score`, `summary`, `webhook` (dict or `MonitorWebhookConfig`, `events` as `MonitorEvent`), `metadata`, `run_now`. Returns `Monitor`; `webhook_secret` only here. |
+| `create_monitor` | `POST /desearch/monitors` | ✅ | `query`, `name`, `criteria`, `sources` (`MonitorSource`), `interval` (`MonitorInterval`), `options` (dict or `MonitorOptions`, including `meta_ads.count` and watched accounts `x.accounts`, `reddit.subreddits`, `youtube.channels`, `tiktok.accounts`, `threads.accounts`, `instagram.accounts`, `facebook.pages`; the last two are required with their source, 422 otherwise), `min_score`, `summary`, `webhook` (dict or `MonitorWebhookConfig`, `events` as `MonitorEvent`), `metadata`, `run_now`. Returns `Monitor`; `webhook_secret` only here. |
 | `estimate_monitor` | `POST /desearch/monitors/estimate` | ✅ | `sources`, `options`, `summary`, `interval`. Returns `MonitorEstimate`. |
 | `list_monitors` | `GET /desearch/monitors` | ✅ | `status` (list or comma string), `limit`, `cursor`. Returns `MonitorList` with `next_cursor`. |
-| `get_monitor` | `GET /desearch/monitors/{monitor_id}` | ✅ | Returns `Monitor` with `last_run` and `stats`. |
+| `get_monitor` | `GET /desearch/monitors/{monitor_id}` | ✅ | Returns `Monitor` with `last_run`, `stats`, and `webhook.last_delivery` (`MonitorWebhookDelivery` or `None`). |
 | `update_monitor` | `PATCH /desearch/monitors/{monitor_id}` | ✅ | Sends only the given fields; `remove_webhook=True` sends `webhook: null`. `pause_monitor` / `resume_monitor` set `status`. |
 | `delete_monitor` | `DELETE /desearch/monitors/{monitor_id}` | ✅ | Returns `MonitorDeleted`. |
 | `trigger_monitor` | `POST /desearch/monitors/{monitor_id}/trigger` | ✅ | Returns the queued `MonitorRun`; HTTP 409 while a run is queued or running. |
 | `list_monitor_runs` | `GET /desearch/monitors/{monitor_id}/runs` | ✅ | `limit`, `cursor`. Returns `MonitorRunList`. |
 | `get_monitor_run` | `GET /desearch/monitors/{monitor_id}/runs/{run_id}` | ✅ | Returns `MonitorRunWithItems`. |
-| `list_monitor_items` | `GET /desearch/monitors/{monitor_id}/items` | ✅ | `limit`, `cursor`, `source`. Returns `MonitorItemList`, newest first. |
+| `list_monitor_items` | `GET /desearch/monitors/{monitor_id}/items` | ✅ | `limit`, `cursor`, `source` (any `MonitorSource`). Returns `MonitorItemList`, newest first. |
 | `test_monitor_webhook` | `POST /desearch/monitors/{monitor_id}/webhook/test` | ✅ | Returns `MonitorWebhookTest`. |
 | `rotate_monitor_webhook_secret` | `POST /desearch/monitors/{monitor_id}/webhook/rotate-secret` | ✅ | Returns `MonitorWebhookSecret`. |
 | `wait_for_monitor_run` | polls `GET .../runs/{run_id}` | ✅ | Defaults: every 5 s, 600 s timeout, then `MonitorRunTimeoutError`. |
