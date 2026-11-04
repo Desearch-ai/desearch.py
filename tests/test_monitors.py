@@ -149,7 +149,7 @@ def _run(status="completed", **extra):
             },
             "screened": 13,
             "passed": 3,
-            "screen": "jev",
+            "screen": "ai",
         },
         "summary": None,
         "reserved_usd": 0.0098,
@@ -340,15 +340,41 @@ class MonitorCrudTests(_ClientTestCase):
             },
         )
 
+    async def test_create_sends_tiktok_and_instagram_hashtags(self):
+        # Hashtags in any script, with or without #, or as a tag URL; Instagram
+        # may watch hashtags without accounts.
+        options = {
+            "tiktok": {"accounts": ["@openai"], "hashtags": ["#ავერსი", "https://www.tiktok.com/tag/aversi"]},
+            "instagram": {"hashtags": ["https://www.instagram.com/explore/tags/aversi/", "ავერსი"]},
+        }
+        cleaned = {
+            "tiktok": {"count": 10, "accounts": ["openai"], "hashtags": ["ავერსი", "aversi"]},
+            "instagram": {"hashtags": ["aversi", "ავერსი"]},
+        }
+        body = _monitor(sources=["tiktok", "instagram"], options=cleaned, min_score=0)
+        client = self.make_client(FakeResponse(json_data=body, status=201))
+        monitor = await client.create_monitor(
+            QUERY,
+            sources=[MonitorSource.TIKTOK, MonitorSource.INSTAGRAM],
+            options=MonitorOptions.model_validate(options),
+            min_score=0,
+        )
+        self.assertEqual(monitor.options["tiktok"]["hashtags"], ["ავერსი", "aversi"])
+        self.assertEqual(monitor.options["instagram"], {"hashtags": ["aversi", "ავერსი"]})
+        self.assertEqual(
+            self.request(client)[2]["json"],
+            {"query": QUERY, "sources": ["tiktok", "instagram"], "options": options, "min_score": 0},
+        )
+
     def test_typed_options_carry_every_source(self):
         options = MonitorOptions.model_validate(
             {
                 "x": {"accounts": ["OpenAI"]},
                 "reddit": {"subreddits": ["LocalLLaMA"]},
                 "youtube": {"channels": ["@OpenAI"]},
-                "tiktok": {"count": 30, "accounts": ["openai"]},
+                "tiktok": {"count": 30, "accounts": ["openai"], "hashtags": ["aversi"]},
                 "threads": {"accounts": ["zuck"]},
-                "instagram": {"accounts": ["openai"]},
+                "instagram": {"accounts": ["openai"], "hashtags": ["ავერსი"]},
                 "facebook": {"pages": ["NASA", "100064869009429"]},
                 "meta_ads": {"count": 10},
             }
@@ -357,8 +383,9 @@ class MonitorCrudTests(_ClientTestCase):
         self.assertEqual(options.reddit.subreddits, ["LocalLLaMA"])
         self.assertEqual(options.youtube.channels, ["@OpenAI"])
         self.assertEqual((options.tiktok.count, options.tiktok.accounts), (30, ["openai"]))
+        self.assertEqual(options.tiktok.hashtags, ["aversi"])
         self.assertEqual(options.threads.accounts, ["zuck"])
-        self.assertEqual(options.instagram.accounts, ["openai"])
+        self.assertEqual((options.instagram.accounts, options.instagram.hashtags), (["openai"], ["ავერსი"]))
         self.assertEqual(options.facebook.pages, ["NASA", "100064869009429"])
         self.assertEqual(options.meta_ads.count, 10)
         self.assertEqual(
@@ -368,8 +395,8 @@ class MonitorCrudTests(_ClientTestCase):
                 "reddit": {"subreddits": ["LocalLLaMA"]},
                 "youtube": {"channels": ["@OpenAI"]},
                 "threads": {"accounts": ["zuck"]},
-                "tiktok": {"count": 30, "accounts": ["openai"]},
-                "instagram": {"accounts": ["openai"]},
+                "tiktok": {"count": 30, "accounts": ["openai"], "hashtags": ["aversi"]},
+                "instagram": {"accounts": ["openai"], "hashtags": ["ავერსი"]},
                 "facebook": {"pages": ["NASA", "100064869009429"]},
                 "meta_ads": {"count": 10},
             },
@@ -387,7 +414,7 @@ class MonitorCrudTests(_ClientTestCase):
             "detail": [
                 {
                     "loc": ["body"],
-                    "msg": "Value error, Instagram watches accounts: add at least one in options.instagram.accounts",
+                    "msg": "Value error, Instagram watches accounts or hashtags: add at least one in options.instagram.accounts or options.instagram.hashtags",
                     "type": "value_error",
                 }
             ]
@@ -400,7 +427,7 @@ class MonitorCrudTests(_ClientTestCase):
         with self.assertRaises(DesearchAPIError) as created:
             await client.create_monitor(QUERY, sources=[MonitorSource.INSTAGRAM], run_now=False)
         self.assertEqual(created.exception.status, 422)
-        self.assertIn("options.instagram.accounts", created.exception.body)
+        self.assertIn("options.instagram.accounts or options.instagram.hashtags", created.exception.body)
         with self.assertRaises(DesearchAPIError) as updated:
             await client.update_monitor(MONITOR_ID, options={"instagram": {"accounts": ["openai"]}})
         self.assertEqual(updated.exception.status, 422)
@@ -666,7 +693,7 @@ class MonitorRunTests(_ClientTestCase):
         client = self.make_client(FakeResponse(json_data=page))
         result = await client.list_monitor_runs(MONITOR_ID, limit=10, cursor="c1")
         self.assertIsInstance(result, MonitorRunList)
-        self.assertEqual(result.runs[0].stats["screen"], "jev")
+        self.assertEqual(result.runs[0].stats["screen"], "ai")
         self.assertTrue(result.runs[0].is_finished)
         self.assertEqual(result.next_cursor, "c2")
         method, url, kwargs = self.request(client)
@@ -686,15 +713,17 @@ class MonitorRunTests(_ClientTestCase):
             "sources": {
                 "x": {"fetched": 40, "in_window": 12, "new": 12, "passed": 3, "error": None, "accounts_failed": ["gone_account"]},
                 "tiktok": {"fetched": 0, "in_window": 0, "new": 0, "passed": 0, "error": "all accounts failed", "accounts_failed": ["private1"]},
+                "instagram": {"fetched": 12, "in_window": 4, "new": 4, "passed": 1, "error": None, "hashtags_failed": ["gone_tag"]},
             },
             "screened": 12,
             "passed": 3,
-            "screen": "jev",
+            "screen": "ai",
         }
         client = self.make_client(FakeResponse(json_data=_run(stats=stats, items=[])))
         run = await client.get_monitor_run(MONITOR_ID, RUN_ID)
         self.assertEqual(run.stats["sources"]["x"]["accounts_failed"], ["gone_account"])
         self.assertEqual(run.stats["sources"]["tiktok"]["error"], "all accounts failed")
+        self.assertEqual(run.stats["sources"]["instagram"]["hashtags_failed"], ["gone_tag"])
 
     async def test_wait_polls_until_the_run_ends(self):
         client = self.make_client(
@@ -752,6 +781,45 @@ class MonitorItemTests(_ClientTestCase):
         self.assertEqual(page.items[0].data["duration_s"], 42)
         self.assertEqual(page.items[1].data["account"], "LocalLLaMA")
         self.assertEqual(self.request(client)[2]["params"], {"source": "tiktok"})
+
+    async def test_items_from_hashtags_keep_the_post_fields(self):
+        tiktok = _item(
+            "2101",
+            source="tiktok",
+            url="https://www.tiktok.com/@someone/video/7570000000000000001",
+            data={
+                "hashtag": "aversi",
+                "post_id": "7570000000000000001",
+                "type": "video",
+                "views": 3400,
+                "likes": 210,
+                "comments": 8,
+                "shares": 3,
+                "saves": 14,
+                "duration_s": 21,
+                "hashtags": ["aversi", "pharmacy"],
+                "mentions": ["aversipharma"],
+                "media": ["https://v16.tiktokcdn.com/video.mp4"],
+                "thumbnail": "https://p16-sign.tiktokcdn.com/thumb.jpeg",
+            },
+        )
+        instagram = _item(
+            "2100",
+            source="instagram",
+            data={"hashtag": "ავერსი", "post_id": "DfPq1x2ABcd", "type": "carousel", "media_type": "carousel",
+                  "media": ["https://scontent.cdninstagram.com/1.jpg", "https://scontent.cdninstagram.com/2.jpg"]},
+        )
+        facebook = _item("2099", source="facebook", data={"account": "NASA", "post_id": "1234567890", "type": "video", "views": 52000})
+        client = self.make_client(FakeResponse(json_data={"items": [tiktok, instagram, facebook], "next_cursor": None}))
+        page = await client.list_monitor_items(MONITOR_ID)
+        by_source = {item.source: item for item in page.items}
+        self.assertEqual(by_source["tiktok"].data["hashtag"], "aversi")
+        self.assertEqual(by_source["tiktok"].data["saves"], 14)
+        self.assertEqual(by_source["tiktok"].data["mentions"], ["aversipharma"])
+        self.assertEqual(by_source["instagram"].data["post_id"], "DfPq1x2ABcd")
+        self.assertEqual(len(by_source["instagram"].data["media"]), 2)
+        self.assertEqual(by_source["facebook"].data["views"], 52000)
+        self.assertNotIn("hashtag", by_source["facebook"].data)
 
     async def test_items_from_the_social_sources_and_meta_ads_keep_their_data(self):
         # Meta ads: the headline is the title, url the Ad Library record and

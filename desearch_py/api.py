@@ -3851,13 +3851,13 @@ class Desearch:
 
         Each run searches the monitor's ``sources`` inside a time window that
         starts where the previous run ended, drops everything the monitor has
-        already seen, screens the rest with Jev against ``query`` and
-        ``criteria`` and keeps the items that score at least ``min_score``.
+        already seen, screens the rest with an AI classifier against ``query``
+        and ``criteria`` and keeps the items that score at least ``min_score``.
         Kept items are readable with :meth:`list_monitor_items` and are sent to
         ``webhook``.
 
         Billing: creating, reading and changing monitors is free. Each run pays
-        its searches at their list price, Jev screening per item screened and,
+        its searches at their list price, AI screening per item screened and,
         with ``summary``, the summary's LLM usage plus 50%. A run's
         ``max_run_cost_usd`` is held on the balance while it runs. See
         https://desearch.ai/pricing.
@@ -3875,11 +3875,13 @@ class Desearch:
                 ``1d`` (the API default) or ``7d``.
             options (Optional[Union[MonitorOptions, Dict[str, Any]]]): Per source:
                 ``web.count`` (10, 15 or 20), ``x.count`` (1-100), ``x.lang``, ``x.min_likes``,
-                ``tiktok.count`` and ``meta_ads.count`` (10, 20 or 30), and up to 10 watched
+                ``tiktok.count`` and ``meta_ads.count`` (10, 20 or 30), up to 10 watched
                 accounts per source (``x.accounts``, ``reddit.subreddits``,
-                ``youtube.channels``, ``tiktok.accounts``, ``threads.accounts``), read instead
-                of searching. ``instagram`` and ``facebook`` only read watched accounts and
-                need at least one in ``instagram.accounts`` or ``facebook.pages``.
+                ``youtube.channels``, ``tiktok.accounts``, ``threads.accounts``) and up to 10
+                watched hashtags on TikTok and Instagram (``tiktok.hashtags``,
+                ``instagram.hashtags``), read instead of searching. ``instagram`` and
+                ``facebook`` only read watched feeds and need at least one in
+                ``instagram.accounts`` or ``instagram.hashtags``, or ``facebook.pages``.
             min_score (Optional[int]): Relevance (0-100) an item needs to be kept (the API
                 default is 60).
             summary (Optional[bool]): Write a short digest of the items each run keeps.
@@ -3895,8 +3897,8 @@ class Desearch:
         Raises:
             DesearchAPIError: 402 when the balance cannot hold one run (also with
                 ``run_now=False``), 409 when the account already has 25 monitors, 422 when a
-                value is invalid, including ``instagram`` or ``facebook`` without watched
-                accounts.
+                value is invalid, including ``instagram`` without watched accounts or
+                hashtags and ``facebook`` without watched pages.
         """
         request = MonitorCreateRequest.model_validate(
             {
@@ -3936,8 +3938,8 @@ class Desearch:
         Args:
             sources (Optional[List[Union[MonitorSource, str]]]): As in :meth:`create_monitor`.
             options (Optional[Union[MonitorOptions, Dict[str, Any]]]): As in :meth:`create_monitor`.
-                Unlike create, ``instagram`` and ``facebook`` without watched accounts are
-                priced as one account instead of refused.
+                Unlike create, ``instagram`` and ``facebook`` without watched accounts or
+                hashtags are priced as one account instead of refused.
             summary (Optional[bool]): Whether runs write a summary.
             interval (Optional[Union[MonitorInterval, str]]): How often it runs.
 
@@ -4046,8 +4048,9 @@ class Desearch:
         so read the monitor first to change one part of them. A new webhook URL
         gets a new signing secret, returned as ``webhook_secret``. The monitor
         as changed (``sources`` and ``options`` from this call, else its
-        current ones) must still watch at least one account for ``instagram``
-        and ``facebook``; the API returns 422 otherwise.
+        current ones) must still watch at least one account or hashtag for
+        ``instagram`` and one page for ``facebook``; the API returns 422
+        otherwise.
 
         Args:
             monitor_id (Union[str, UUID]): The monitor.

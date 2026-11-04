@@ -2191,9 +2191,10 @@ class CompanyResultsPage(BaseModel):
 # characters, at most 5 criteria of 300 characters, min_score 0-100, web.count
 # 10/15/20, x.count 1-100, tiktok.count and meta_ads.count 10/20/30, at most 20
 # metadata keys of 64 characters with string values of at most 500, at most 10
-# watched accounts per source with valid names, and at least one watched account
-# for instagram and facebook on create and update) and that the webhook URL is
-# HTTPS on a public address; it returns 400 or 422 otherwise.
+# watched accounts and 10 hashtags per source with valid names, and at least one
+# watched account or hashtag for instagram and one page for facebook on create
+# and update) and that the webhook URL is HTTPS on a public address; it returns
+# 400 or 422 otherwise.
 
 
 class MonitorWebOptions(BaseModel):
@@ -2243,18 +2244,23 @@ class MonitorYouTubeOptions(BaseModel):
 
 class MonitorTikTokOptions(BaseModel):
     """``count``: posts read per run, 10, 20 or 30 (the API default is 10; per
-    account with ``accounts``). ``accounts``: up to 10 TikTok usernames to
-    watch (``openai``, ``@openai`` or a profile URL); each run then reads
-    every profile's newest posts instead of searching by keyword. The API
-    returns the names cleaned (``openai``). TikTok search has no working date
-    filter and ranks by relevance, so a keyword monitor finds a new video only
-    when it reaches TikTok's top results; to follow creators, watch their
-    accounts."""
+    account and per hashtag with ``accounts`` or ``hashtags``). ``accounts``:
+    up to 10 TikTok usernames to watch (``openai``, ``@openai`` or a profile
+    URL); each run then reads every profile's newest posts instead of
+    searching by keyword. The API returns the names cleaned (``openai``).
+    ``hashtags``: up to 10 hashtags to watch, in any script (``aversi``,
+    ``#ავერსი`` or a ``https://www.tiktok.com/tag/aversi`` URL); a hashtag
+    feed lists posts from any account, so it finds posts outside the watched
+    accounts. The API returns them without ``#`` (``aversi``). TikTok search
+    has no working date filter and ranks by relevance, so a keyword monitor
+    finds a new video only when it reaches TikTok's top results; to follow
+    creators or a tag, watch their accounts or the hashtag."""
 
     model_config = ConfigDict(extra="allow")
 
     count: Optional[int] = None
     accounts: Optional[List[str]] = None
+    hashtags: Optional[List[str]] = None
 
 
 class MonitorThreadsOptions(BaseModel):
@@ -2270,22 +2276,28 @@ class MonitorThreadsOptions(BaseModel):
 
 
 class MonitorInstagramOptions(BaseModel):
-    """``accounts``: 1-10 Instagram usernames to watch (``openai``,
-    ``@openai`` or a profile URL). Instagram has no keyword search here, so
-    the ``instagram`` source needs at least one (the API returns 422
-    otherwise). Each run reads up to 12 newest posts per account. The API
-    returns the names cleaned (``openai``)."""
+    """``accounts``: up to 10 Instagram usernames to watch (``openai``,
+    ``@openai`` or a profile URL). ``hashtags``: up to 10 hashtags to watch,
+    in any script (``aversi``, ``#ავერსი`` or a
+    ``https://www.instagram.com/explore/tags/aversi/`` URL); a hashtag feed
+    lists posts from any account, so it finds posts outside the watched
+    accounts. Instagram has no keyword search here, so the ``instagram``
+    source needs at least one account or hashtag (the API returns 422
+    otherwise). Each run reads up to 12 posts per account and per hashtag.
+    The API returns the names cleaned (``openai``) and the hashtags without
+    ``#`` (``aversi``)."""
 
     model_config = ConfigDict(extra="allow")
 
     accounts: Optional[List[str]] = None
+    hashtags: Optional[List[str]] = None
 
 
 class MonitorFacebookOptions(BaseModel):
     """``pages``: 1-10 Facebook pages to watch (``NASA``, a numeric page ID or
-    a page URL). Facebook has no keyword search for posts, so the
-    ``facebook`` source needs at least one (the API returns 422 otherwise);
-    for ads by keyword use ``meta_ads``. Each run reads up to 10 newest posts
+    a page URL). Facebook has no keyword search or hashtag feed for posts, so
+    the ``facebook`` source needs at least one (the API returns 422
+    otherwise); for ads by keyword use ``meta_ads``. Each run reads up to 10 newest posts
     per page. The API returns a page name or numeric ID; ``profile.php?id=…``
     and ``/pages/Name/123…`` URLs become the ID."""
 
@@ -2310,12 +2322,15 @@ class MonitorOptions(BaseModel):
     """Per-source settings.
 
     With watched accounts (``x.accounts``, ``reddit.subreddits``,
-    ``youtube.channels``, ``tiktok.accounts``, ``threads.accounts``) a source
-    reads those accounts instead of searching. ``instagram`` and ``facebook``
-    only read watched accounts (``instagram.accounts``, ``facebook.pages``)
-    and need at least one. The ``query`` and ``criteria`` still decide what is
-    kept; ``min_score=0`` keeps every new post. An account that cannot be read
-    is listed in the run's ``stats["sources"][<source>]["accounts_failed"]``.
+    ``youtube.channels``, ``tiktok.accounts``, ``threads.accounts``) or
+    watched hashtags (``tiktok.hashtags``, ``instagram.hashtags``) a source
+    reads those feeds instead of searching. ``instagram`` and ``facebook``
+    only read watched feeds (``instagram.accounts`` or
+    ``instagram.hashtags``, ``facebook.pages``) and need at least one. The
+    ``query`` and ``criteria`` still decide what is kept; ``min_score=0``
+    keeps every new post. An account or hashtag that cannot be read is listed
+    in the run's ``stats["sources"][<source>]["accounts_failed"]`` or
+    ``["hashtags_failed"]``.
     """
 
     model_config = ConfigDict(extra="allow")
@@ -2535,14 +2550,22 @@ class MonitorItem(BaseModel):
     ``data`` holds source fields: X ``likes``, ``reposts``, ``replies``,
     ``views``; Reddit ``subreddit``, ``score``, ``comments``; YouTube
     ``channel``, ``views``, ``thumbnail``; TikTok ``views``, ``likes``,
-    ``comments``, ``shares``, ``duration_s``, ``thumbnail``; Threads
-    ``likes``; Instagram ``likes``, ``comments``, ``views``, ``media_type``,
-    ``thumbnail``; Facebook ``reactions``, ``comments``, ``shares``; Meta ads
-    ``page``, ``active``, ``cta``, ``link`` (the ad's landing page),
-    ``platforms``, ``thumbnail``, with the ad headline as ``title`` and
-    ``url`` the Ad Library record; web ``highlights``, ``domain``. TikTok and
-    Instagram thumbnail URLs expire. An item read from a watched account also
-    has ``account``, the name it was watched as."""
+    ``comments``, ``shares``, ``saves``, ``duration_s``; Threads ``likes``;
+    Instagram ``likes``, ``comments``, ``views``, ``media_type``; Facebook
+    ``reactions``, ``comments``, ``shares``, ``views``; Meta ads ``page``,
+    ``active``, ``cta``, ``link`` (the ad's landing page), ``platforms``,
+    ``thumbnail``, with the ad headline as ``title`` and ``url`` the Ad
+    Library record; web ``highlights``, ``domain``. TikTok, Instagram and
+    Facebook items also have ``post_id`` (the ID
+    ``GET /desearch/social/post`` gives the same post; an Instagram
+    shortcode), ``type`` (``video``, ``image``, ``carousel``, ``reel``, …),
+    ``hashtags``, ``mentions`` (TikTok and Instagram), ``media`` (links to the
+    post's videos and pictures) and ``thumbnail``; media and thumbnail links
+    expire after a few days. The metrics are the post's when the run found
+    it; ``GET /desearch/social/post?url=<link>`` reads them again
+    (``author=true`` adds the author's followers). An item read from a
+    watched account also has ``account``, the name it was watched as, and one
+    read from a watched hashtag has ``hashtag``."""
 
     model_config = ConfigDict(extra="allow")
 
@@ -2565,9 +2588,10 @@ class MonitorRun(BaseModel):
     ``fail_reason`` is ``None``, ``insufficient_credits``,
     ``all_sources_failed``, ``worker_lost`` or ``internal_error``.
     ``stats.sources`` counts per source what was ``fetched``, ``in_window``,
-    ``new`` and ``passed``, with ``accounts_failed`` listing watched accounts
-    that could not be read; ``stats.screen`` is ``jev`` or ``keyword`` (the
-    fallback). ``reserved_usd`` is the hold and ``cost_usd`` what the run was
+    ``new`` and ``passed``, with ``accounts_failed`` and ``hashtags_failed``
+    listing watched accounts and hashtags that could not be read;
+    ``stats.screen`` is ``ai`` (screened by an AI classifier) or ``keyword``
+    (the fallback). ``reserved_usd`` is the hold and ``cost_usd`` what the run was
     billed (``None`` until it is billed)."""
 
     model_config = ConfigDict(extra="allow")

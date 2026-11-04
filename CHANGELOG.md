@@ -23,7 +23,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Monitors**: searches that run on a schedule over web, X, Reddit, YouTube,
   Threads, TikTok and Meta ads, or read watched accounts (also on Instagram
-  and Facebook), and keep only new items Jev screens as relevant.
+  and Facebook), and keep only new items an AI classifier screens as
+  relevant.
   `create_monitor`, `estimate_monitor`, `list_monitors`, `get_monitor`,
   `update_monitor` (only the given fields are sent; `remove_webhook=True`
   sends `webhook: null`), `pause_monitor`, `resume_monitor`,
@@ -50,6 +51,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `views`, `media_type`, `thumbnail`; Facebook `reactions`, `comments`,
   `shares`; Meta ads `page`, `active`, `cta`, `link`, `platforms`,
   `thumbnail`) and `signals["criteria"]`.
+- Watched hashtags on TikTok and Instagram: `options.tiktok.hashtags` and
+  `options.instagram.hashtags` (`MonitorTikTokOptions.hashtags`,
+  `MonitorInstagramOptions.hashtags`; at most 10 each, in any script, `aversi`,
+  `#ავერსი` or a tag URL). A hashtag feed lists posts from any account, so a
+  monitor finds posts outside the accounts it watches. Instagram needs
+  accounts or hashtags. A hashtag that cannot be read is listed in
+  `stats["sources"][source]["hashtags_failed"]`, and items read from one have
+  `data["hashtag"]`. TikTok, Instagram and Facebook items document `post_id`,
+  `type`, `hashtags`, `mentions`, `media`, TikTok `saves` and Facebook
+  `views`; `stats["screen"]` is `ai` or `keyword`.
 - `Monitor.webhook.last_delivery`, a `MonitorWebhookDelivery` (`event`,
   `status` `pending`/`delivered`/`failed`, `attempts`, `status_code`, `error`,
   `created_at`, `next_attempt_at`, `delivered_at`), `None` before the first

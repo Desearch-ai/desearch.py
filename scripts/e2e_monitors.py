@@ -3,7 +3,7 @@
 
 Creates one monitor without running it, calls every free Monitors method on
 it, and deletes it. With ``--with-run`` it also triggers one run, waits for
-it and reads its items (billed: an X search of 5 posts plus Jev screening,
+it and reads its items (billed: an X search of 5 posts plus AI screening,
 about $0.002-0.01). With ``--with-accounts`` it also creates a free TikTok
 monitor that watches accounts on every source (desearch-public-api#635) and
 checks the names come back cleaned; with both flags it also runs that monitor
