@@ -475,18 +475,18 @@ class MonitorCrudTests(_ClientTestCase):
         self.assertEqual(kwargs["json"], {"sources": ["x", "web"], "summary": False, "interval": "1d"})
 
     async def test_estimate_breaks_down_the_new_sources(self):
-        # docs/monitors.md prices: a Threads profile is one request, an
-        # Instagram account 12 posts, a Facebook page 10 posts, Meta ads
-        # meta_ads.count records.
+        # docs/monitors.md prices: a Threads profile is one request; an
+        # Instagram account, a Facebook page and the Ad Library search are one
+        # read each ($3.00 per 1,000 reads), whatever meta_ads.count.
         estimate = {
-            "max_run_cost_usd": 0.14,
+            "max_run_cost_usd": 0.02,
             "runs_per_month": 30,
-            "max_monthly_cost_usd": 4.2,
+            "max_monthly_cost_usd": 0.6,
             "breakdown": {
                 "threads": 0.00207,
-                "instagram": 0.04968,
-                "facebook": 0.0207,
-                "meta_ads": 0.0621,
+                "instagram": 0.006,
+                "facebook": 0.003,
+                "meta_ads": 0.003,
                 "screening": 0.00505,
             },
         }
@@ -501,8 +501,8 @@ class MonitorCrudTests(_ClientTestCase):
             sources=[MonitorSource.THREADS, "instagram", MonitorSource.FACEBOOK, MonitorSource.META_ADS],
             options=options,
         )
-        self.assertEqual(result.breakdown["instagram"], 0.04968)
-        self.assertEqual(result.breakdown["meta_ads"], 0.0621)
+        self.assertEqual(result.breakdown["instagram"], 0.006)
+        self.assertEqual(result.breakdown["meta_ads"], 0.003)
         self.assertEqual(
             self.request(client)[2]["json"],
             {"sources": ["threads", "instagram", "facebook", "meta_ads"], "options": options},

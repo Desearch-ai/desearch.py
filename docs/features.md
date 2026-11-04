@@ -213,7 +213,7 @@ Company Search and Company Enrich run as background tasks on the People Search e
 
 ## Monitors features
 
-A monitor reruns a search over web, X, Reddit, YouTube, Threads, TikTok, and the Meta Ad Library (or reads up to 10 watched accounts per source, including Instagram accounts and Facebook pages, which only watch accounts, and up to 10 hashtags on TikTok and Instagram) on a schedule and keeps only new items that an AI classifier screens as relevant. Every route is free; each run is billed for its searches at list price, AI screening per item screened, and the optional summary's LLM usage plus 50%.
+A monitor reruns a search over web, X, Reddit, YouTube, Threads, TikTok, and the Meta Ad Library (or reads up to 10 watched accounts per source, including Instagram accounts and Facebook pages, which only watch accounts, and up to 10 hashtags on TikTok and Instagram) on a schedule and keeps only new items that an AI classifier screens as relevant. Every route is free; each run is billed for its searches at list price (TikTok, Instagram, Facebook and Meta ads per read, $3.00 per 1,000 reads, whatever the number of posts), AI screening per item screened, and the optional summary's LLM usage plus 50%.
 
 | Method | Endpoint | Status | Notes |
 |---|---|---|---|

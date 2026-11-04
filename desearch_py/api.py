@@ -3857,8 +3857,10 @@ class Desearch:
         ``webhook``.
 
         Billing: creating, reading and changing monitors is free. Each run pays
-        its searches at their list price, AI screening per item screened and,
-        with ``summary``, the summary's LLM usage plus 50%. A run's
+        its searches at their list price (TikTok, Instagram, Facebook and Meta
+        ads per read: one per watched account, hashtag, page, keyword search or
+        Ad Library page, whatever the number of posts), AI screening per item
+        screened and, with ``summary``, the summary's LLM usage plus 50%. A run's
         ``max_run_cost_usd`` is held on the balance while it runs. See
         https://desearch.ai/pricing.
 

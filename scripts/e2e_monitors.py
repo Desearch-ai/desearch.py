@@ -510,11 +510,11 @@ SOCIAL_CLEANED = {
     "facebook": {"pages": ["NASA", "100064869009429", "123456789012"]},
     "meta_ads": {"count": 20},
 }
-# Most one run can cost per watched account or ad (docs/monitors.md): a Threads
-# profile is one request, an Instagram account 12 posts and a Facebook page 10
-# posts at $0.00207 each, and Meta ads meta_ads.count records at $0.00207.
-SOCIAL_UNIT_USD = {"threads": 0.00207, "instagram": 0.02484, "facebook": 0.0207, "meta_ads": 0.00207}
-SOCIAL_UNITS = {"threads": 2, "instagram": 2, "facebook": 3, "meta_ads": 20}
+# Most one run can cost (docs/monitors.md): a Threads profile is one request
+# ($0.00207); an Instagram account, a Facebook page and the Ad Library search
+# (whatever meta_ads.count) are one read each, at $3.00 per 1,000 reads.
+SOCIAL_UNIT_USD = {"threads": 0.00207, "instagram": 0.003, "facebook": 0.003, "meta_ads": 0.003}
+SOCIAL_UNITS = {"threads": 2, "instagram": 2, "facebook": 3, "meta_ads": 1}
 
 
 def _check_breakdown(breakdown: dict, units: dict) -> str:

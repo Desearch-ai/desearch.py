@@ -61,6 +61,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `data["hashtag"]`. TikTok, Instagram and Facebook items document `post_id`,
   `type`, `hashtags`, `mentions`, `media`, TikTok `saves` and Facebook
   `views`; `stats["screen"]` is `ai` or `keyword`.
+- Monitors billing as documented: TikTok, Instagram, Facebook and Meta ads
+  reads are billed per read ($3.00 per 1,000 reads), whatever the number of
+  posts a read returns: one per watched account, hashtag, Facebook page,
+  TikTok keyword search or Ad Library page. An empty or private TikTok
+  account takes two reads. X timelines, subreddits, YouTube channels and
+  Threads keep their list prices.
 - `Monitor.webhook.last_delivery`, a `MonitorWebhookDelivery` (`event`,
   `status` `pending`/`delivered`/`failed`, `attempts`, `status_code`, `error`,
   `created_at`, `next_attempt_at`, `delivered_at`), `None` before the first
