@@ -2,7 +2,7 @@
 
 Official async Python SDK for the Desearch API.
 
-`desearch-py` is a thin `aiohttp` client for the Desearch public API. It wraps AI search, the Search API, X, TikTok, Instagram, Facebook, YouTube, Reddit, Threads, extraction, People Search, Company Search, and the public network stats behind a single async client class and returns `pydantic` models for most successful responses. The package metadata currently reports **version 1.11.0** and requires **Python 3.10+**. See [CHANGELOG.md](CHANGELOG.md) for unreleased and breaking changes.
+`desearch-py` is a thin `aiohttp` client for the Desearch public API. It wraps AI search, the Search API, X, TikTok, Instagram, Facebook, YouTube, Reddit, Threads, extraction, People Search, Company Search, and the public network stats behind a single async client class and returns `pydantic` models for most successful responses. The package metadata currently reports **version 1.13.0** and requires **Python 3.10+**. See [CHANGELOG.md](CHANGELOG.md) for unreleased and breaking changes.
 
 ## Package purpose
 
@@ -488,7 +488,7 @@ async for company in client.iter_company_results(task.task_id):
 
 ### Company Search pricing
 
-You are billed per company delivered. Company Search reserves `count` companies at the route price; when it ends you pay only for the companies it delivered, with a minimum of 2 when it delivers any. Company Enrich reserves one company per domain you send and bills a minimum of 1; the rest of the reservation, including duplicate domains, is returned. A company left out by `min_score` or `filters.require` is not billed, and a task that delivers no companies is free. Waiting, reading results, exports, listing tasks, pausing, resuming, and cancelling are free. Results are kept 30 days after the task ends. See <https://desearch.ai/pricing> for current prices.
+You are billed per company delivered. Company Search reserves `count` companies at the route price; when it ends you pay only for the companies it delivered, with a minimum of 1 when it delivers any. Such a search stops once it costs more than the companies it found pay for (`completion_reason` `cost_limit`, `coverage_limited` true). With a search budget (`max_cost_usd`, see [Search budget and continuing a search](#search-budget-and-continuing-a-search)) the whole budget is reserved instead, and the search effort is billed where the companies delivered do not cover it, up to the budget. Company Enrich reserves one company per domain you send, with the same minimum of 1; the rest of the reservation, including duplicate domains, is returned. A company left out by `min_score` or `filters.require` is not billed, and a task that delivers no companies is free. Waiting, reading results, exports, listing tasks, pausing, resuming, and cancelling are free. Results are kept 30 days after the task ends. See <https://desearch.ai/pricing> for current prices.
 
 ### Company Search methods
 
@@ -504,13 +504,37 @@ You are billed per company delivered. Company Search reserves `count` companies 
 | `wait_for_company_task` | polls `get_company_task` | the ended `CompanyTask` |
 | `iter_company_results` | follows `next_cursor` on `get_company_results` | async iterator of `Company` |
 
-`company_search` takes `query` (3-1000 characters), `count` (5-200, API default 25), `min_score` (0-100), `exclude` (domains or URLs to skip, up to 1000), `roles`, `infer_emails`, `verify_emails`, `filters`, and `metadata`. `company_enrich` takes `domains` (1-200 domains or URLs), `roles`, `infer_emails`, `verify_emails`, and `metadata`.
+`company_search` takes `query` (3-1000 characters), `count` (5-200, API default 25), `min_score` (0-100), `exclude` (domains or URLs to skip, up to 1000), `roles`, `infer_emails`, `verify_emails`, `filters`, and `metadata`, and the keyword-only `max_cost_usd` and `continue_from` (1.12.0 and later; see below). `company_enrich` takes `domains` (1-200 domains or URLs), `roles`, `infer_emails`, `verify_emails`, and `metadata`.
 
 - `roles` lists the leaders to look for (`CompanyRole`): `ceo`, `founder`, `cto`, `cfo`, `coo`, `cmo`, `president`, `owner`, `managing_director`. The API default is `ceo`, `founder`, `cto`, `cfo`. A managing director (Geschäftsführer) counts as `ceo` when `ceo` is asked for.
 - `infer_emails` (API default `True`) guesses leaders' emails from the company's address pattern. `verify_emails` (API default `True`) checks every email; turn it off to finish sooner without `verification`.
 - `filters` is a `CompanySearchFilters` or a dict: `countries` (ISO 3166-1 alpha-2 codes or names, up to 20; scoring treats them as a location criterion) and `require` (`CompanyRequirement`: `email`, `phone`, `linkedin`, `leader`, `leader_email`). A company that does not have what you require is not delivered and not billed.
 - `metadata`, `idempotency_key`, and `include_metadata=True` work as in People Search. `list_company_tasks` takes `type` (`search` or `enrich`, see `CompanyTaskType`), `status`, `limit`, `cursor`, and a `metadata` filter, like `list_people_tasks`. People Search tasks are not listed there.
 - `wait_for_company_task` works like `wait_for_people_task` and raises `CompanyTaskTimeoutError` (with the last state on `.task`) on timeout.
+- A `query` that names the only companies wanted with their websites ("Restrict this search to Acme (acme.com.au) and Beta (beta.co.uk). Return only those.") checks only those domains: `task.interpreted["interpretation"]["only_domains"]` lists them, and the task ends with `completion_reason` `all_domains_processed`. Companies named without their websites cannot restrict the search: it runs as usual, with the task warning `scope_not_applied`.
+
+### Search budget and continuing a search
+
+Without a budget, a Company Search stops once it costs more than the companies it found pay for: `completion_reason` is `cost_limit` and `coverage_limited` is true, with fewer than `count` companies. Two keyword-only arguments of `company_search` (1.12.0 and later) take it further:
+
+- `max_cost_usd`: your search budget in USD, above 0 and at most 100, and at least what `count` reserves (`count` times the route price; below that the API returns 422). The whole budget is reserved, and the search keeps going until it delivers `count` or spends the budget. Its search effort (`task.progress["effort_units"]`, in companies at the route price) is billed where the companies delivered do not cover it, up to the budget, even when it finds few companies or none. The unused budget is returned. Only set it when you are willing to spend that amount.
+- `continue_from`: the `task_id` (a string or `UUID`) of an ended Company Search of yours. The new search leaves out every company that one delivered, held for review (`progress["review"]`) or excluded, so it only finds new ones. Send the same `query` and filters with the `count` still wanted. The API returns 409 while that task is running or paused, and 404 if it is not your Company Search.
+
+Both are sent only when given, and `task.request` keeps them.
+
+```python
+task = await client.wait_for_company_task(task.task_id)
+if task.coverage_limited and task.completion_reason == "cost_limit":
+    more = await client.company_search(
+        query="Series A fintech startups in Berlin building payment infrastructure",
+        count=max(5, task.count - task.result_count),
+        min_score=60,
+        exclude=["stripe.com"],
+        filters=CompanySearchFilters(countries=["DE"], require=[CompanyRequirement.EMAIL]),
+        continue_from=task.task_id,
+        max_cost_usd=5,  # billed for search effort up to $5, even if it finds few companies
+    )
+```
 
 ### How companies fill in
 
@@ -552,7 +576,7 @@ async for company in client.iter_company_results(task.task_id):
 - `people[].verified` is true when a quote on the company's own site or the person's current LinkedIn position shows the role. `people[].evidence` holds the quote and its page.
 - `contact_coverage` says what was found, under the names `filters.require` uses.
 - `score.criteria_checks` reuses `PeopleCriterionCheck`, and `score.unverified_criteria` and `score.fully_verified` work as in People Search, against the company's own pages. `score.relevance` is `high`, `medium`, or `low`.
-- `task.completion_reason` (`CompanyCompletionReason`) adds `all_domains_processed` (Company Enrich read every domain) to the People Search reasons. `coverage_limited` works as in People Search, and `warnings` holds `CompanyTaskWarning` items such as `enrichment_time_limit`. `task.request` is the normalized request.
+- `task.completion_reason` (`CompanyCompletionReason`) adds `all_domains_processed` (Company Enrich, or a Company Search restricted to the domains its query names, read every domain) to the People Search reasons. `coverage_limited` works as in People Search, and `warnings` holds `CompanyTaskWarning` items such as `enrichment_time_limit`. `task.request` is the normalized request.
 - The CSV export has one row per company: domain, name, score, location, primary email, emails, phones, and social profiles, then the CEO (or managing director), founder, CTO, and CFO with title, email, email status, and LinkedIn, and `fully_verified`, `unverified_criteria`, and `enrichment_status`. JSON Lines has every field.
 
 ### Company Search errors
@@ -560,9 +584,10 @@ async for company in client.iter_company_results(task.task_id):
 HTTP errors raise `DesearchAPIError`, with the same statuses as People Search:
 
 - `402`: the account has no credits for the reservation.
-- `422`: an invalid request, for example a domain that is an IP address or `localhost`.
+- `422`: an invalid request, for example a domain that is an IP address or `localhost`, or a `max_cost_usd` below what `count` reserves.
+- `409` from `company_search` with `continue_from`: the search to continue from is still running or paused. It is a plain `DesearchAPIError`, not a `CompanyTaskConflictError`.
 - `429`: too many People Search and Company Search tasks are already queued, running, or paused.
-- `404`: the task does not exist or belongs to another account. A People Search task ID is a 404 on the company routes, and a company task ID on the People Search routes.
+- `404`: the task does not exist or belongs to another account. A People Search task ID is a 404 on the company routes, and a company task ID on the People Search routes. `continue_from` gets a 404 for a task that is not your Company Search (a People Search or Company Enrich task included).
 - `410`: the results expired (they are kept 30 days after the task ends).
 - `409` from pause, resume, or cancel raises `CompanyTaskConflictError`, a `DesearchAPIError` subclass. `.detail` explains why, and `.task` holds the task's current state as a `CompanyTask`.
 

@@ -1,6 +1,7 @@
 import copy
 import json
 import unittest
+from uuid import UUID
 
 from aiohttp import web
 from pydantic import ValidationError
@@ -575,6 +576,171 @@ class CompanyTaskCreateTests(_ClientTestCase):
             CompanyEnrichRequest(roles=["ceo"])
 
 
+EARLIER_TASK_ID = "9d1c2e4f-0a7b-4c3d-8e6f-1a2b3c4d5e6f"
+
+
+class CompanySearchBudgetTests(_ClientTestCase):
+    async def test_budget_and_continue_from_are_sent_when_given(self):
+        request = {
+            "query": QUERY,
+            "count": 50,
+            "exclude": ["stripe.com", "acme.com"],
+            "roles": ["ceo", "founder", "cto", "cfo"],
+            "infer_emails": True,
+            "verify_emails": True,
+            "filters": {"countries": [], "require": []},
+            "max_cost_usd": 5.0,
+            "continue_from": EARLIER_TASK_ID,
+        }
+        client = self.make_client(
+            FakeResponse(
+                json_data=_task(count=50, request=request, reserved_cost_usd=5.0),
+                status=202,
+            )
+        )
+        task = await client.company_search(
+            query=QUERY,
+            count=50,
+            exclude=["stripe.com"],
+            max_cost_usd=5,
+            continue_from=EARLIER_TASK_ID,
+        )
+        self.assertEqual(
+            client.client.requests[0][2]["json"],
+            {
+                "query": QUERY,
+                "count": 50,
+                "exclude": ["stripe.com"],
+                "max_cost_usd": 5.0,
+                "continue_from": EARLIER_TASK_ID,
+            },
+        )
+        # The whole budget is reserved, and the request keeps both fields.
+        self.assertEqual(task.reserved_cost_usd, 5.0)
+        self.assertEqual(task.request["max_cost_usd"], 5.0)
+        self.assertEqual(task.request["continue_from"], EARLIER_TASK_ID)
+
+    async def test_each_is_sent_alone_and_continue_from_takes_a_uuid(self):
+        for extra, expected in (
+            ({"max_cost_usd": 2.5}, {"max_cost_usd": 2.5}),
+            (
+                {"continue_from": UUID(EARLIER_TASK_ID)},
+                {"continue_from": EARLIER_TASK_ID},
+            ),
+        ):
+            with self.subTest(extra=extra):
+                client = self.make_client(FakeResponse(json_data=_task()))
+                await client.company_search(query=QUERY, **extra)
+                self.assertEqual(
+                    client.client.requests[0][2]["json"], {"query": QUERY, **expected}
+                )
+
+    async def test_budget_and_continue_from_are_keyword_only(self):
+        client = self.make_client()
+        with self.assertRaises(TypeError):
+            await client.company_search(
+                QUERY, 25, None, None, None, None, None, None, None, 5.0
+            )
+        self.assertEqual(client.client.requests, [])
+
+    def test_request_model_keeps_both_fields(self):
+        request = CompanySearchRequest(
+            query=QUERY, max_cost_usd=3, continue_from=UUID(EARLIER_TASK_ID)
+        )
+        self.assertEqual(
+            request.model_dump(exclude_none=True, mode="json"),
+            {"query": QUERY, "max_cost_usd": 3.0, "continue_from": EARLIER_TASK_ID},
+        )
+        with self.assertRaises(ValidationError):
+            CompanySearchRequest(query=QUERY, max_cost_usd="a lot")
+
+    async def test_create_errors_keep_the_api_status_and_detail(self):
+        for status, detail in (
+            (
+                422,
+                "max_cost_usd must be at least what count reserves: 50 companies at "
+                "$0.045 is $2.25.",
+            ),
+            (
+                409,
+                "The search to continue from has not ended: wait for it to finish, "
+                "or cancel it.",
+            ),
+            (404, "Task not found."),
+        ):
+            with self.subTest(status=status):
+                client = self.make_client(
+                    FakeResponse(json_data={"detail": detail}, status=status)
+                )
+                with self.assertRaises(DesearchAPIError) as caught:
+                    await client.company_search(
+                        query=QUERY,
+                        count=50,
+                        max_cost_usd=1,
+                        continue_from=EARLIER_TASK_ID,
+                    )
+                # A 409 here is about the earlier task, not a pause/resume/cancel conflict.
+                self.assertNotIsInstance(caught.exception, CompanyTaskConflictError)
+                self.assertEqual(caught.exception.status, status)
+                self.assertIn(detail, caught.exception.body)
+
+    async def test_an_ended_task_reports_its_effort_and_why_it_stopped(self):
+        client = self.make_client(
+            FakeResponse(
+                json_data=_task(
+                    "completed",
+                    count=50,
+                    result_count=12,
+                    progress={"qualified": 12, "effort_units": 80},
+                    completion_reason="cost_limit",
+                    coverage_limited=True,
+                    reserved_cost_usd=5.0,
+                    final_cost_usd=3.6,
+                    refunded_usd=1.4,
+                )
+            )
+        )
+        task = await client.get_company_task(TASK_ID)
+        self.assertEqual(task.completion_reason, CompanyCompletionReason.COST_LIMIT)
+        self.assertTrue(task.coverage_limited)
+        self.assertEqual(task.progress["effort_units"], 80)
+        self.assertEqual(
+            (task.reserved_cost_usd, task.final_cost_usd, task.refunded_usd),
+            (5.0, 3.6, 1.4),
+        )
+
+    async def test_a_search_restricted_to_named_domains(self):
+        interpreted = {"interpretation": {"only_domains": ["acme.com.au", "beta.co.uk"]}}
+        restricted = _task(
+            "completed",
+            result_count=2,
+            interpreted=interpreted,
+            completion_reason="all_domains_processed",
+        )
+        unrestricted = _task(
+            "completed",
+            warnings=[
+                {
+                    "code": "scope_not_applied",
+                    "message": "The query names companies without their websites.",
+                }
+            ],
+        )
+        client = self.make_client(
+            FakeResponse(json_data=restricted), FakeResponse(json_data=unrestricted)
+        )
+        task = await client.get_company_task(TASK_ID)
+        self.assertEqual(
+            task.interpreted["interpretation"]["only_domains"],
+            ["acme.com.au", "beta.co.uk"],
+        )
+        self.assertEqual(
+            task.completion_reason, CompanyCompletionReason.ALL_DOMAINS_PROCESSED
+        )
+        task = await client.get_company_task(TASK_ID)
+        self.assertEqual(task.warnings[0].code, "scope_not_applied")
+
+
 class CompanyTaskRouteTests(_ClientTestCase):
     async def test_list_tasks_sends_type_and_joined_statuses(self):
         client = self.make_client(
@@ -1131,6 +1297,24 @@ class CompanySearchHttpTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             json.loads(enrich_seen["body"]),
             {"domains": ["acme.com", "beta.io"], "verify_emails": False},
+        )
+
+    async def test_budget_and_continue_from_reach_the_server_in_the_body(self):
+        await self.client.company_search(
+            query=QUERY,
+            count=50,
+            max_cost_usd=4.5,
+            continue_from=UUID(EARLIER_TASK_ID),
+        )
+        (search,) = self.seen
+        self.assertEqual(
+            json.loads(search["body"]),
+            {
+                "query": QUERY,
+                "count": 50,
+                "max_cost_usd": 4.5,
+                "continue_from": EARLIER_TASK_ID,
+            },
         )
 
     async def test_task_filters_and_export_reach_the_server_as_query_params(self):

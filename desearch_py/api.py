@@ -3331,6 +3331,8 @@ class Desearch:
         filters: Optional[Union[CompanySearchFilters, Dict[str, Any]]] = None,
         metadata: Optional[Dict[str, str]] = None,
         *,
+        max_cost_usd: Optional[float] = None,
+        continue_from: Optional[Union[str, UUID]] = None,
         idempotency_key: Optional[str] = None,
         include_metadata: bool = False,
     ) -> Union[CompanyTask, DesearchResponse[CompanyTask]]:
@@ -3353,9 +3355,27 @@ class Desearch:
 
         Billing: ``count`` companies are reserved at the route price. When the
         task ends you pay only for the companies it delivered, with a minimum
-        of 2 when it delivers any; a company left out by ``min_score`` or
+        of 1 when it delivers any; a company left out by ``min_score`` or
         ``filters.require`` is not billed, and a task that delivers none is
-        free. See https://desearch.ai/pricing.
+        free. Such a search stops once it costs more than the companies it
+        found pay for (``completion_reason`` ``cost_limit``, with
+        ``coverage_limited``). See https://desearch.ai/pricing.
+
+        With ``max_cost_usd`` the whole budget is reserved instead, and the
+        search keeps going until it delivers ``count`` or spends the budget.
+        Its search effort (``progress["effort_units"]``) is billed where the
+        companies it delivered do not cover it, up to the budget, also when it
+        finds few companies or none; the unused budget is returned. To look
+        for more companies after a search ended, start a new one with the same
+        query and filters, the ``count`` still wanted and
+        ``continue_from=<its task_id>``.
+
+        A query that names the only companies wanted with their websites
+        ("Restrict this search to Acme (acme.com.au) and Beta (beta.co.uk).
+        Return only those.") checks only those domains and ends with
+        ``completion_reason`` ``all_domains_processed``. Naming them without
+        their websites leaves the search unrestricted, with the task warning
+        ``scope_not_applied``.
 
         Args:
             query (str): The companies you are looking for, in plain language: what they do,
@@ -3381,6 +3401,15 @@ class Desearch:
                 a-z, 0-9, ``_``, ``.`` or ``-``; values are strings of at most 200 characters.
                 Returned as ``task.metadata`` and usable as a :meth:`list_company_tasks` filter.
                 Never used by the task itself.
+            max_cost_usd (Optional[float]): Your search budget in USD (above 0, at most 100), at
+                least what ``count`` reserves at the route price (HTTP 422 below that). It is
+                charged for search effort even when the search finds few companies or none, so
+                set it only to spend up to that amount. Sent only when given.
+            continue_from (Optional[Union[str, UUID]]): The ``task_id`` of an ended Company Search
+                of yours. This search leaves out every company that one delivered, held for review
+                (``progress["review"]``) or excluded, so it only finds new ones. HTTP 409 while
+                that task is running or paused, 404 if it is not your Company Search. Sent only
+                when given.
             idempotency_key (Optional[str]): Sent as the ``Idempotency-Key`` header. Reusing a key
                 returns the earlier task (HTTP 200) and is not charged again.
 
@@ -3398,6 +3427,8 @@ class Desearch:
                 "verify_emails": verify_emails,
                 "filters": filters,
                 "metadata": metadata,
+                "max_cost_usd": max_cost_usd,
+                "continue_from": continue_from,
             }
         )
         return await self._create_company_task(

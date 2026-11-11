@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 from enum import Enum
 from typing import Any, Dict, Generic, List, Optional, TypeVar, Union
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -194,7 +195,10 @@ class CompanyCompletionReason(str, Enum):
     """Why a Company Search or Company Enrich task ended (``CompanyTask.completion_reason``).
 
     The People Search reasons (see ``PeopleCompletionReason``) plus
-    ``ALL_DOMAINS_PROCESSED``: a Company Enrich task read every domain.
+    ``ALL_DOMAINS_PROCESSED``: a Company Enrich task, or a Company Search
+    whose query names the only companies wanted with their websites, read
+    every domain. ``COST_LIMIT``: a search without ``max_cost_usd`` cost more
+    than the companies it found pay for, or a search with one spent it.
     """
 
     COUNT_REACHED = "count_reached"
@@ -1752,8 +1756,9 @@ def _enum_values(value: Any) -> Any:
 # Bodies for POST /desearch/companies/search and POST /desearch/companies/enrich.
 # Both run as People Search tasks. The API validates ranges (query 3-1000
 # characters, count 5-200, min_score 0-100, exclude up to 1000 domains, 1-200
-# domains, up to 20 countries), the ``roles`` and ``require`` names, and
-# ``metadata`` with the People Search rules; it returns 422 otherwise.
+# domains, up to 20 countries, max_cost_usd above 0, at most 100 and at least
+# what count reserves), the ``roles`` and ``require`` names, and ``metadata``
+# with the People Search rules; it returns 422 otherwise.
 
 
 class CompanySearchFilters(BaseModel):
@@ -1776,7 +1781,13 @@ class CompanySearchFilters(BaseModel):
 
 
 class CompanySearchRequest(BaseModel):
-    """Find companies from a description and collect their public contact data."""
+    """Find companies from a description and collect their public contact data.
+
+    ``max_cost_usd``: a search budget in USD; the search then keeps going
+    until it delivers ``count`` or spends it, and bills its search effort up
+    to it. ``continue_from``: the ``task_id`` of an ended Company Search whose
+    companies this one leaves out. See ``Desearch.company_search``.
+    """
 
     model_config = ConfigDict(extra="allow")
 
@@ -1789,11 +1800,19 @@ class CompanySearchRequest(BaseModel):
     verify_emails: Optional[bool] = None
     filters: Optional[CompanySearchFilters] = None
     metadata: Optional[Dict[str, str]] = None
+    max_cost_usd: Optional[float] = None
+    continue_from: Optional[str] = None
 
     @field_validator("roles", mode="before")
     @classmethod
     def _roles_values(cls, value: Any) -> Any:
         return _enum_values(value)
+
+    @field_validator("continue_from", mode="before")
+    @classmethod
+    def _continue_from_text(cls, value: Any) -> Any:
+        # A task_id may be passed as a UUID.
+        return str(value) if isinstance(value, UUID) else value
 
 
 class CompanyEnrichRequest(BaseModel):
@@ -1838,7 +1857,12 @@ class CompanyTask(BaseModel):
     ``query`` is the description (Company Search) or a short label of the
     domains such as ``acme.com, beta.io and 3 more`` (Company Enrich).
     ``count`` is the companies asked for (Company Enrich: the domains left
-    after deduplication). ``request`` is the normalized request.
+    after deduplication). ``request`` is the normalized request; it keeps
+    ``max_cost_usd`` and ``continue_from`` when they were sent, and a
+    continued search's ``exclude`` lists the earlier search's companies too.
+    ``interpreted["interpretation"]["only_domains"]`` lists the domains a
+    query restricted the search to, when it named the only companies wanted
+    with their websites.
 
     ``stage`` is ``planning``, ``searching``, ``processing``, ``enriching``
     (every company is published and only later stages of some are left) or
@@ -1847,11 +1871,15 @@ class CompanyTask(BaseModel):
     ``unreachable``, ``not_a_company``, ``below_min_score``,
     ``no_<requirement>``), ``enrichment`` (``published``, ``complete``,
     ``pending``, ``failed``) and ``email_checks`` (``checked``, ``valid``,
-    ``invalid``, ``risky``, ``unknown``).
+    ``invalid``, ``risky``, ``unknown``). A search with ``max_cost_usd`` also
+    has ``effort_units``: its search effort, in companies at the route price,
+    billed where the companies delivered do not cover it.
 
     ``completion_reason`` says why the task ended (a ``CompanyCompletionReason``
     value; ``None`` while it is queued, running or paused), and
     ``coverage_limited`` is true when a budget stopped it before ``count``.
+    ``warnings`` can include ``scope_not_applied``: the query names the only
+    companies wanted without their websites, so the search was not restricted.
     ``cost_usd`` and ``usage_count`` are set on the response of the call that
     created the task (what it reserved).
     """
