@@ -5,10 +5,97 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-> Note: the version in this repository is 1.12.0, but the latest release
+> Note: the version in this repository is 1.13.0, but the latest release
 > published on PyPI is 1.2.1. Versions 1.3.0 through 1.6.2 were never published
 > to PyPI and are not recorded individually here.
 
+## [1.13.0] - unreleased (not yet published to PyPI)
+
+> Waits for the Monitors API release (desearch-public-api#625 and #630, on
+> api-dev only, plus #635 and its console migration for TikTok and watched
+> accounts, and #644 and its console migration for Instagram, Facebook, Meta
+> ads, Threads accounts and `webhook.last_delivery`). Until then the
+> production API returns 404 for these routes.
+
+### Added
+
+- **Monitors**: searches that run on a schedule over web, X, Reddit, YouTube,
+  Threads, TikTok and Meta ads, or read watched accounts (also on Instagram
+  and Facebook), and keep only new items an AI classifier screens as
+  relevant.
+  `create_monitor`, `estimate_monitor`, `list_monitors`, `get_monitor`,
+  `update_monitor` (only the given fields are sent; `remove_webhook=True`
+  sends `webhook: null`), `pause_monitor`, `resume_monitor`,
+  `delete_monitor`, `trigger_monitor`, `list_monitor_runs`,
+  `get_monitor_run`, `list_monitor_items`, `test_monitor_webhook` and
+  `rotate_monitor_webhook_secret`. Every route is free; runs are billed.
+- TikTok as a monitor source (`MonitorSource.TIKTOK`, `options.tiktok.count`)
+  and watched accounts, read instead of searching: `options.x.accounts`,
+  `options.reddit.subreddits`, `options.youtube.channels` and
+  `options.tiktok.accounts` (`MonitorXOptions`, `MonitorRedditOptions`,
+  `MonitorYouTubeOptions`, `MonitorTikTokOptions`; at most 10 each). A TikTok
+  keyword monitor finds a new video only when it reaches TikTok's top results;
+  to follow creators, watch their accounts.
+- Instagram, Facebook and Meta ads as monitor sources (`MonitorSource.INSTAGRAM`,
+  `FACEBOOK`, `META_ADS`) and Threads watched accounts, following
+  desearch-public-api#644: `options.instagram.accounts` and
+  `options.facebook.pages` (1-10 each; those sources only read watched
+  accounts, so create and update return 422 without any),
+  `options.meta_ads.count` (10, 20 or 30 Ad Library results per run; the
+  query should be a keyword) and `options.threads.accounts`
+  (`MonitorInstagramOptions`, `MonitorFacebookOptions`,
+  `MonitorMetaAdsOptions`, `MonitorThreadsOptions`). The docs list the item
+  `data` fields of each (Threads `likes`; Instagram `likes`, `comments`,
+  `views`, `media_type`, `thumbnail`; Facebook `reactions`, `comments`,
+  `shares`; Meta ads `page`, `active`, `cta`, `link`, `platforms`,
+  `thumbnail`) and `signals["criteria"]`.
+- Watched hashtags on TikTok and Instagram: `options.tiktok.hashtags` and
+  `options.instagram.hashtags` (`MonitorTikTokOptions.hashtags`,
+  `MonitorInstagramOptions.hashtags`; at most 10 each, in any script, `skincare`,
+  `#სილამაზე` or a tag URL). A hashtag feed lists posts from any account, so a
+  monitor finds posts outside the accounts it watches. Instagram needs
+  accounts or hashtags. A hashtag that cannot be read is listed in
+  `stats["sources"][source]["hashtags_failed"]`, and items read from one have
+  `data["hashtag"]`. TikTok, Instagram and Facebook items document `post_id`,
+  `type`, `hashtags`, `mentions`, `media`, TikTok `saves` and Facebook
+  `views`; `stats["screen"]` is `ai` or `keyword`.
+- Monitors billing as documented: TikTok, Instagram, Facebook and Meta ads
+  reads are billed per read ($3.00 per 1,000 reads), whatever the number of
+  posts a read returns: one per watched account, hashtag, Facebook page,
+  TikTok keyword search or Ad Library page. An empty or private TikTok
+  account takes two reads. X timelines, subreddits, YouTube channels and
+  Threads keep their list prices.
+- `Monitor.webhook.last_delivery`, a `MonitorWebhookDelivery` (`event`,
+  `status` `pending`/`delivered`/`failed`, `attempts`, `status_code`, `error`,
+  `created_at`, `next_attempt_at`, `delivered_at`), `None` before the first
+  delivery.
+- `facebook_search(..., sort=...)`: `impressions` (the API default) or
+  `recent`, which puts recently started ads first.
+- `wait_for_monitor_run` (raises `MonitorRunTimeoutError`) and
+  `iter_monitor_items`, which follows `next_cursor`.
+- `verify_webhook_signature(secret, header, body)` in `desearch_py.webhooks`,
+  re-exported from the package root, with `SIGNATURE_HEADER` and
+  `DEFAULT_TOLERANCE_SECONDS`: checks `Desearch-Signature: t=<unix>,v1=<hex>`
+  (HMAC-SHA256 of `"<t>.<raw body>"` keyed with the `webhook_secret`),
+  rejects timestamps more than 5 minutes off and compares in constant time.
+- Models `Monitor`, `MonitorList`, `MonitorRun`, `MonitorRunWithItems`,
+  `MonitorRunList`, `MonitorItem`, `MonitorItemList`, `MonitorEstimate`,
+  `MonitorDeleted`, `MonitorWebhook`, `MonitorWebhookTest`,
+  `MonitorWebhookSecret`, `MonitorWebhookEvent` (a delivery body),
+  `MonitorWebhookMonitor`, `MonitorLastRun` and `MonitorStats`; request
+  models `MonitorCreateRequest`, `MonitorUpdateRequest`,
+  `MonitorEstimateRequest`, `MonitorOptions`, `MonitorWebOptions`,
+  `MonitorXOptions`, `MonitorRedditOptions`, `MonitorYouTubeOptions`,
+  `MonitorTikTokOptions`, `MonitorThreadsOptions`, `MonitorInstagramOptions`,
+  `MonitorFacebookOptions`, `MonitorMetaAdsOptions` and
+  `MonitorWebhookConfig`; `MonitorWebhookDelivery`; enums `MonitorSource`,
+  `MonitorInterval`, `MonitorEvent`, `MonitorStatus` and `MonitorRunStatus`;
+  and `MONITOR_RUN_ENDED_STATUSES`.
+- `scripts/e2e_monitors.py`, a live smoke test of every Monitors method
+  (`--base-url`, `--key-env`, `--with-run` for one billed run, `--with-accounts`
+  for TikTok and watched accounts, `--with-social` for Instagram, Facebook,
+  Meta ads and Threads accounts without a run; it deletes every monitor it
+  creates; not run by CI).
 ## [1.12.0] - unreleased (not yet published to PyPI)
 
 > Waits for the Company Search API release that adds `max_cost_usd` and

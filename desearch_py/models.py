@@ -226,6 +226,76 @@ class CompanyEmailStatus(str, Enum):
     UNKNOWN = "unknown"
 
 
+class MonitorSource(str, Enum):
+    """Where a monitor looks (``sources``). The API default is ``WEB`` and ``X``.
+
+    ``INSTAGRAM`` and ``FACEBOOK`` only read watched accounts
+    (``options.instagram.accounts``, ``options.facebook.pages``) and need at
+    least one. ``META_ADS`` searches the Meta Ad Library by keyword.
+    """
+
+    WEB = "web"
+    X = "x"
+    REDDIT = "reddit"
+    YOUTUBE = "youtube"
+    THREADS = "threads"
+    TIKTOK = "tiktok"
+    INSTAGRAM = "instagram"
+    FACEBOOK = "facebook"
+    META_ADS = "meta_ads"
+
+
+class MonitorInterval(str, Enum):
+    """How often a monitor runs (``interval``). The API default is ``ONE_DAY``."""
+
+    ONE_HOUR = "1h"
+    THREE_HOURS = "3h"
+    SIX_HOURS = "6h"
+    TWELVE_HOURS = "12h"
+    ONE_DAY = "1d"
+    SEVEN_DAYS = "7d"
+
+
+class MonitorEvent(str, Enum):
+    """Webhook events (``webhook.events``). The API default is ``ITEMS_FOUND`` and ``RUN_FAILED``.
+
+    ``ITEMS_FOUND``: a run kept at least one item. ``RUN_COMPLETED``: every
+    completed run. ``RUN_FAILED``: a run failed. Test deliveries from
+    ``test_monitor_webhook`` have type ``monitor.test``.
+    """
+
+    ITEMS_FOUND = "monitor.items.found"
+    RUN_COMPLETED = "monitor.run.completed"
+    RUN_FAILED = "monitor.run.failed"
+
+
+class MonitorStatus(str, Enum):
+    """``Monitor.status``. A paused monitor has no scheduled runs; a manual trigger still works."""
+
+    ACTIVE = "active"
+    PAUSED = "paused"
+
+
+class MonitorRunStatus(str, Enum):
+    """``MonitorRun.status``."""
+
+    QUEUED = "queued"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+# Statuses after which a monitor run never changes again.
+MONITOR_RUN_ENDED_STATUSES = frozenset(
+    {
+        MonitorRunStatus.COMPLETED.value,
+        MonitorRunStatus.FAILED.value,
+        MonitorRunStatus.CANCELLED.value,
+    }
+)
+
+
 # ─── Twitter / X Models ──────────────────────────────────────────────────────
 
 
@@ -2140,6 +2210,527 @@ class CompanyResultsPage(BaseModel):
     results: List[Company]
     next_cursor: str
     has_more: bool
+
+
+# ─── Monitors Request Models ─────────────────────────────────────────────────
+#
+# Bodies for POST /desearch/monitors, PATCH /desearch/monitors/{monitor_id} and
+# POST /desearch/monitors/estimate. The API validates ranges (query 3-500
+# characters, at most 5 criteria of 300 characters, min_score 0-100, web.count
+# 10/15/20, x.count 1-100, tiktok.count and meta_ads.count 10/20/30, at most 20
+# metadata keys of 64 characters with string values of at most 500, at most 10
+# watched accounts and 10 hashtags per source with valid names, and at least one
+# watched account or hashtag for instagram and one page for facebook on create
+# and update) and that the webhook URL is HTTPS on a public address; it returns
+# 400 or 422 otherwise.
+
+
+class MonitorWebOptions(BaseModel):
+    """``count``: pages read per run, 10, 15 or 20 (the API default is 10)."""
+
+    model_config = ConfigDict(extra="allow")
+
+    count: Optional[int] = None
+
+
+class MonitorXOptions(BaseModel):
+    """``count``: newest posts read per run, 1-100 (the API default is 20).
+    ``lang``: only posts in this language, e.g. ``en``. ``min_likes``: only
+    posts with at least this many likes. ``accounts``: up to 10 X usernames
+    to watch (``OpenAI``, ``@OpenAI`` or a profile URL); each run then reads
+    every account's timeline (20 posts, so ``count`` is not used) instead of
+    searching, and ``lang`` and ``min_likes`` filter it. The API returns the
+    names cleaned (``OpenAI``)."""
+
+    model_config = ConfigDict(extra="allow")
+
+    count: Optional[int] = None
+    lang: Optional[str] = None
+    min_likes: Optional[int] = None
+    accounts: Optional[List[str]] = None
+
+
+class MonitorRedditOptions(BaseModel):
+    """``subreddits``: up to 10 subreddits to watch (``LocalLLaMA``,
+    ``r/LocalLLaMA`` or a URL); each run then reads their newest posts instead
+    of searching. The API returns the names cleaned (``LocalLLaMA``)."""
+
+    model_config = ConfigDict(extra="allow")
+
+    subreddits: Optional[List[str]] = None
+
+
+class MonitorYouTubeOptions(BaseModel):
+    """``channels``: up to 10 channels to watch (``@handle``, a ``UC…`` channel
+    ID or a channel URL); each run then reads their latest videos instead of
+    searching. The API keeps a handle as ``@handle`` and an ID as is."""
+
+    model_config = ConfigDict(extra="allow")
+
+    channels: Optional[List[str]] = None
+
+
+class MonitorTikTokOptions(BaseModel):
+    """``count``: posts read per run, 10, 20 or 30 (the API default is 10; per
+    account and per hashtag with ``accounts`` or ``hashtags``). ``accounts``:
+    up to 10 TikTok usernames to watch (``openai``, ``@openai`` or a profile
+    URL); each run then reads every profile's newest posts instead of
+    searching by keyword. The API returns the names cleaned (``openai``).
+    ``hashtags``: up to 10 hashtags to watch, in any script (``skincare``,
+    ``#სილამაზე`` or a ``https://www.tiktok.com/tag/skincare`` URL); a hashtag
+    feed lists posts from any account, so it finds posts outside the watched
+    accounts. The API returns them without ``#`` (``skincare``). TikTok search
+    has no working date filter and ranks by relevance, so a keyword monitor
+    finds a new video only when it reaches TikTok's top results; to follow
+    creators or a tag, watch their accounts or the hashtag."""
+
+    model_config = ConfigDict(extra="allow")
+
+    count: Optional[int] = None
+    accounts: Optional[List[str]] = None
+    hashtags: Optional[List[str]] = None
+
+
+class MonitorThreadsOptions(BaseModel):
+    """``accounts``: up to 10 Threads usernames to watch (``zuck``, ``@zuck``
+    or a profile URL); each run then reads every profile's newest posts
+    instead of searching. Threads keyword search returns loosely matched
+    posts, so watching accounts works better. The API returns the names
+    cleaned (``zuck``)."""
+
+    model_config = ConfigDict(extra="allow")
+
+    accounts: Optional[List[str]] = None
+
+
+class MonitorInstagramOptions(BaseModel):
+    """``accounts``: up to 10 Instagram usernames to watch (``openai``,
+    ``@openai`` or a profile URL). ``hashtags``: up to 10 hashtags to watch,
+    in any script (``skincare``, ``#სილამაზე`` or a
+    ``https://www.instagram.com/explore/tags/skincare/`` URL); a hashtag feed
+    lists posts from any account, so it finds posts outside the watched
+    accounts. Instagram has no keyword search here, so the ``instagram``
+    source needs at least one account or hashtag (the API returns 422
+    otherwise). Each run reads up to 12 posts per account and per hashtag.
+    The API returns the names cleaned (``openai``) and the hashtags without
+    ``#`` (``skincare``)."""
+
+    model_config = ConfigDict(extra="allow")
+
+    accounts: Optional[List[str]] = None
+    hashtags: Optional[List[str]] = None
+
+
+class MonitorFacebookOptions(BaseModel):
+    """``pages``: 1-10 Facebook pages to watch (``NASA``, a numeric page ID or
+    a page URL). Facebook has no keyword search or hashtag feed for posts, so
+    the ``facebook`` source needs at least one (the API returns 422
+    otherwise); for ads by keyword use ``meta_ads``. Each run reads up to 10 newest posts
+    per page. The API returns a page name or numeric ID; ``profile.php?id=…``
+    and ``/pages/Name/123…`` URLs become the ID."""
+
+    model_config = ConfigDict(extra="allow")
+
+    pages: Optional[List[str]] = None
+
+
+class MonitorMetaAdsOptions(BaseModel):
+    """``count``: Meta Ad Library results read per run, 10, 20 or 30 (the API
+    default is 10). The Ad Library matches keywords, so the monitor's
+    ``query`` should be a brand, product or short phrase (``ChatGPT``); a
+    sentence finds nothing. It has no date filter: an ad is new the first time
+    a run sees it, if it started within the last 30 days."""
+
+    model_config = ConfigDict(extra="allow")
+
+    count: Optional[int] = None
+
+
+class MonitorOptions(BaseModel):
+    """Per-source settings.
+
+    With watched accounts (``x.accounts``, ``reddit.subreddits``,
+    ``youtube.channels``, ``tiktok.accounts``, ``threads.accounts``) or
+    watched hashtags (``tiktok.hashtags``, ``instagram.hashtags``) a source
+    reads those feeds instead of searching. ``instagram`` and ``facebook``
+    only read watched feeds (``instagram.accounts`` or
+    ``instagram.hashtags``, ``facebook.pages``) and need at least one. The
+    ``query`` and ``criteria`` still decide what is kept; ``min_score=0``
+    keeps every new post. An account or hashtag that cannot be read is listed
+    in the run's ``stats["sources"][<source>]["accounts_failed"]`` or
+    ``["hashtags_failed"]``.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    web: Optional[MonitorWebOptions] = None
+    x: Optional[MonitorXOptions] = None
+    reddit: Optional[MonitorRedditOptions] = None
+    youtube: Optional[MonitorYouTubeOptions] = None
+    threads: Optional[MonitorThreadsOptions] = None
+    tiktok: Optional[MonitorTikTokOptions] = None
+    instagram: Optional[MonitorInstagramOptions] = None
+    facebook: Optional[MonitorFacebookOptions] = None
+    meta_ads: Optional[MonitorMetaAdsOptions] = None
+
+
+class MonitorWebhookConfig(BaseModel):
+    """Where a monitor sends new items. ``url`` must be HTTPS on a public
+    address; redirects are not followed. ``events`` defaults to
+    ``monitor.items.found`` and ``monitor.run.failed`` (see ``MonitorEvent``)."""
+
+    model_config = ConfigDict(extra="allow")
+
+    url: str
+    events: Optional[List[str]] = None
+
+    @field_validator("events", mode="before")
+    @classmethod
+    def _events_values(cls, value: Any) -> Any:
+        return _enum_values(value)
+
+
+class MonitorCreateRequest(BaseModel):
+    """Create a monitor: a search that runs on a schedule and keeps only what is new."""
+
+    model_config = ConfigDict(extra="allow")
+
+    query: str
+    name: Optional[str] = None
+    criteria: Optional[List[str]] = None
+    sources: Optional[List[str]] = None
+    interval: Optional[str] = None
+    options: Optional[MonitorOptions] = None
+    min_score: Optional[int] = None
+    summary: Optional[bool] = None
+    webhook: Optional[MonitorWebhookConfig] = None
+    metadata: Optional[Dict[str, str]] = None
+    run_now: Optional[bool] = None
+
+    @field_validator("sources", mode="before")
+    @classmethod
+    def _sources_values(cls, value: Any) -> Any:
+        return _enum_values(value)
+
+    @field_validator("interval", mode="before")
+    @classmethod
+    def _interval_value(cls, value: Any) -> Any:
+        return _enum_value(value)
+
+
+class MonitorUpdateRequest(BaseModel):
+    """Change a monitor. Every field is optional; only the ones set are sent."""
+
+    model_config = ConfigDict(extra="allow")
+
+    query: Optional[str] = None
+    name: Optional[str] = None
+    criteria: Optional[List[str]] = None
+    sources: Optional[List[str]] = None
+    interval: Optional[str] = None
+    options: Optional[MonitorOptions] = None
+    min_score: Optional[int] = None
+    summary: Optional[bool] = None
+    status: Optional[str] = None
+    webhook: Optional[MonitorWebhookConfig] = None
+    metadata: Optional[Dict[str, str]] = None
+
+    @field_validator("sources", mode="before")
+    @classmethod
+    def _sources_values(cls, value: Any) -> Any:
+        return _enum_values(value)
+
+    @field_validator("interval", "status", mode="before")
+    @classmethod
+    def _single_values(cls, value: Any) -> Any:
+        return _enum_value(value)
+
+
+class MonitorEstimateRequest(BaseModel):
+    """What one run (and a month of runs) of a monitor with these settings can cost at most."""
+
+    model_config = ConfigDict(extra="allow")
+
+    sources: Optional[List[str]] = None
+    options: Optional[MonitorOptions] = None
+    summary: Optional[bool] = None
+    interval: Optional[str] = None
+
+    @field_validator("sources", mode="before")
+    @classmethod
+    def _sources_values(cls, value: Any) -> Any:
+        return _enum_values(value)
+
+    @field_validator("interval", mode="before")
+    @classmethod
+    def _interval_value(cls, value: Any) -> Any:
+        return _enum_value(value)
+
+
+# ─── Monitors Response Models ────────────────────────────────────────────────
+#
+# Timestamps are ISO 8601 strings and amounts are USD. Every model keeps extra
+# fields so a newer API does not break older clients.
+
+
+class MonitorWebhookDelivery(BaseModel):
+    """The newest delivery to a monitor's webhook. ``status`` is ``pending``
+    (waiting for its first or next attempt at ``next_attempt_at``, with the
+    last answer in ``status_code`` and ``error``), ``delivered``, or
+    ``failed`` (every retry used). ``event`` is a ``MonitorEvent`` value.
+    Test events from :meth:`Desearch.test_monitor_webhook` are not
+    deliveries and do not change it."""
+
+    model_config = ConfigDict(extra="allow")
+
+    event: str
+    status: str
+    attempts: int = 0
+    status_code: Optional[int] = None
+    error: Optional[str] = None
+    created_at: Optional[str] = None
+    next_attempt_at: Optional[str] = None
+    delivered_at: Optional[str] = None
+
+
+class MonitorWebhook(BaseModel):
+    """A monitor's webhook. ``consecutive_failures`` counts deliveries in a row
+    that failed every attempt; at 5 the monitor pauses with ``paused_reason``
+    ``webhook_failing``. ``last_delivery`` is the newest delivery, ``None``
+    before the first."""
+
+    model_config = ConfigDict(extra="allow")
+
+    url: str
+    events: List[str] = Field(default_factory=list)
+    consecutive_failures: int = 0
+    last_delivery: Optional[MonitorWebhookDelivery] = None
+
+
+class MonitorLastRun(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    run_id: str
+    status: str
+    item_count: int = 0
+    cost_usd: Optional[float] = None
+    fail_reason: Optional[str] = None
+    created_at: Optional[str] = None
+    finished_at: Optional[str] = None
+
+
+class MonitorStats(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    runs: int = 0
+    items: int = 0
+    spent_usd: float = 0.0
+
+
+class Monitor(BaseModel):
+    """A monitor. ``status`` is ``active`` or ``paused``; ``paused_reason`` is
+    ``None``, ``user``, ``insufficient_credits`` or ``webhook_failing``.
+    ``max_run_cost_usd`` is the most one run can cost (held on the balance
+    while it runs). ``webhook_secret`` (``whsec_…``) is set only on the
+    response of create (with a webhook), of an update that changes the webhook
+    URL, and of :meth:`Desearch.rotate_monitor_webhook_secret`; keep it to
+    verify deliveries with :func:`desearch_py.verify_webhook_signature`."""
+
+    model_config = ConfigDict(extra="allow")
+
+    monitor_id: str
+    name: Optional[str] = None
+    query: str
+    criteria: List[str] = Field(default_factory=list)
+    sources: List[str] = Field(default_factory=list)
+    interval: str
+    options: Dict[str, Any] = Field(default_factory=dict)
+    min_score: int
+    summary: bool = False
+    status: str
+    paused_reason: Optional[str] = None
+    webhook: Optional[MonitorWebhook] = None
+    metadata: Dict[str, str] = Field(default_factory=dict)
+    max_run_cost_usd: float
+    next_run_at: Optional[str] = None
+    last_run: Optional[MonitorLastRun] = None
+    stats: MonitorStats = Field(default_factory=MonitorStats)
+    created_at: str
+    updated_at: str
+    webhook_secret: Optional[str] = None
+
+
+class MonitorList(BaseModel):
+    """One page of monitors, newest first. ``next_cursor`` is ``None`` on the last page."""
+
+    model_config = ConfigDict(extra="allow")
+
+    monitors: List[Monitor]
+    next_cursor: Optional[str] = None
+
+
+class MonitorItem(BaseModel):
+    """An item a monitor kept. ``score`` (0-100) is the lowest of ``relevant``
+    and the criteria; ``signals`` holds ``relevant`` and ``new_info`` (0-1),
+    plus ``criteria`` (the lowest answer across the criteria) when the monitor
+    has criteria. Meta ads are screened with their own relevance question and
+    have no ``new_info``.
+    ``data`` holds source fields: X ``likes``, ``reposts``, ``replies``,
+    ``views``; Reddit ``subreddit``, ``score``, ``comments``; YouTube
+    ``channel``, ``views``, ``thumbnail``; TikTok ``views``, ``likes``,
+    ``comments``, ``shares``, ``saves``, ``duration_s``; Threads ``likes``;
+    Instagram ``likes``, ``comments``, ``views``, ``media_type``; Facebook
+    ``reactions``, ``comments``, ``shares``, ``views``; Meta ads ``page``,
+    ``active``, ``cta``, ``link`` (the ad's landing page), ``platforms``,
+    ``thumbnail``, with the ad headline as ``title`` and ``url`` the Ad
+    Library record; web ``highlights``, ``domain``. TikTok, Instagram and
+    Facebook items also have ``post_id`` (the ID
+    ``GET /desearch/social/post`` gives the same post; an Instagram
+    shortcode), ``type`` (``video``, ``image``, ``carousel``, ``reel``, …),
+    ``hashtags``, ``mentions`` (TikTok and Instagram), ``media`` (links to the
+    post's videos and pictures) and ``thumbnail``; media and thumbnail links
+    expire after a few days. The metrics are the post's when the run found
+    it; ``GET /desearch/social/post?url=<link>`` reads them again
+    (``author=true`` adds the author's followers). An item read from a
+    watched account also has ``account``, the name it was watched as, and one
+    read from a watched hashtag has ``hashtag``."""
+
+    model_config = ConfigDict(extra="allow")
+
+    item_id: str
+    run_id: Optional[str] = None
+    source: str
+    url: Optional[str] = None
+    title: Optional[str] = None
+    text: Optional[str] = None
+    author: Optional[Dict[str, Any]] = None
+    published_at: Optional[str] = None
+    score: Optional[int] = None
+    signals: Dict[str, Any] = Field(default_factory=dict)
+    found_at: str
+    data: Dict[str, Any] = Field(default_factory=dict)
+
+
+class MonitorRun(BaseModel):
+    """One run of a monitor. ``trigger`` is ``schedule`` or ``manual``.
+    ``fail_reason`` is ``None``, ``insufficient_credits``,
+    ``all_sources_failed``, ``worker_lost`` or ``internal_error``.
+    ``stats.sources`` counts per source what was ``fetched``, ``in_window``,
+    ``new`` and ``passed``, with ``accounts_failed`` and ``hashtags_failed``
+    listing watched accounts and hashtags that could not be read;
+    ``stats.screen`` is ``ai`` (screened by an AI classifier) or ``keyword``
+    (the fallback). ``reserved_usd`` is the hold and ``cost_usd`` what the run was
+    billed (``None`` until it is billed)."""
+
+    model_config = ConfigDict(extra="allow")
+
+    run_id: str
+    monitor_id: str
+    trigger: str
+    status: str
+    fail_reason: Optional[str] = None
+    window_start: Optional[str] = None
+    window_end: Optional[str] = None
+    item_count: int = 0
+    stats: Dict[str, Any] = Field(default_factory=dict)
+    summary: Optional[str] = None
+    reserved_usd: Optional[float] = None
+    cost_usd: Optional[float] = None
+    created_at: str
+    started_at: Optional[str] = None
+    finished_at: Optional[str] = None
+
+    @property
+    def is_finished(self) -> bool:
+        """True once the run has ended (completed, failed or cancelled)."""
+        return self.status in MONITOR_RUN_ENDED_STATUSES
+
+
+class MonitorRunWithItems(MonitorRun):
+    """A run with the items it kept, most relevant first."""
+
+    items: List[MonitorItem] = Field(default_factory=list)
+
+
+class MonitorRunList(BaseModel):
+    """One page of runs, newest first. ``next_cursor`` is ``None`` on the last page."""
+
+    model_config = ConfigDict(extra="allow")
+
+    runs: List[MonitorRun]
+    next_cursor: Optional[str] = None
+
+
+class MonitorItemList(BaseModel):
+    """One page of items, newest first. ``next_cursor`` is ``None`` on the last page."""
+
+    model_config = ConfigDict(extra="allow")
+
+    items: List[MonitorItem]
+    next_cursor: Optional[str] = None
+
+
+class MonitorEstimate(BaseModel):
+    """The most one run can cost, runs per month at the interval, and the most
+    a month can cost. ``breakdown`` is the most each part of a run can cost."""
+
+    model_config = ConfigDict(extra="allow")
+
+    max_run_cost_usd: float
+    runs_per_month: int
+    max_monthly_cost_usd: float
+    breakdown: Dict[str, float] = Field(default_factory=dict)
+
+
+class MonitorDeleted(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    monitor_id: str
+    deleted: bool
+
+
+class MonitorWebhookTest(BaseModel):
+    """What the monitor's webhook answered a signed ``monitor.test`` event.
+    ``delivered`` means a 2xx."""
+
+    model_config = ConfigDict(extra="allow")
+
+    delivered: bool
+    status_code: Optional[int] = None
+    error: Optional[str] = None
+    duration_ms: int = 0
+
+
+class MonitorWebhookSecret(BaseModel):
+    """The new signing secret, returned once."""
+
+    model_config = ConfigDict(extra="allow")
+
+    webhook_secret: str
+
+
+class MonitorWebhookMonitor(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    monitor_id: str
+    name: Optional[str] = None
+    metadata: Dict[str, str] = Field(default_factory=dict)
+
+
+class MonitorWebhookEvent(BaseModel):
+    """The JSON body of a webhook delivery. ``type`` is a ``MonitorEvent``
+    value or ``monitor.test``; ``run`` is ``None`` on test events. Verify the
+    ``Desearch-Signature`` header with :func:`desearch_py.verify_webhook_signature`
+    before trusting it."""
+
+    model_config = ConfigDict(extra="allow")
+
+    id: str
+    type: str
+    created_at: Optional[str] = None
+    monitor: MonitorWebhookMonitor
+    run: Optional[MonitorRun] = None
+    items: List[MonitorItem] = Field(default_factory=list)
 
 
 # ─── Error Response Models ────────────────────────────────────────────────────
