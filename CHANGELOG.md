@@ -5,9 +5,36 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-> Note: the version in this repository is 1.12.0, but the latest release
+> Note: the version in this repository is 1.13.0, but the latest release
 > published on PyPI is 1.2.1. Versions 1.3.0 through 1.6.2 were never published
 > to PyPI and are not recorded individually here.
+
+## [1.13.0] - unreleased (not yet published to PyPI)
+
+### Added
+
+- `search_api(..., include_domains=..., exclude_domains=...)`: only pages on
+  these domains or their subdomains (at most 100), or never these (at most
+  1,200; exclusion wins over `include_domains` and `site:`).
+- `search_api(..., summary=True)`: also return a short answer written from
+  the results, with numbered citations. The summary has no extra charge.
+- `SearchApiResponse.summary` (`SearchApiSummary`: `text` and `citations`, a
+  list of `SearchApiCitation` with `index`, `url`, `title`) and
+  `SearchApiResponse.meta` (`SearchApiMeta`: `latency_ms`, `notices`). `[n]`
+  in `text` refers to `citations[].index`; every cited page is also in
+  `results`. When the summary could not be written, `summary` is `None` and
+  `meta.notices` has `Summary unavailable.`.
+
+### Deprecated
+
+- `ai_web_links_search` (`POST /desearch/ai/search/links/web`) emits
+  `DeprecationWarning`; use `search_api` (`POST /search`). The route keeps
+  working.
+
+### Changed
+
+- `ai_search` covers X posts and web (from the Desearch index) with an
+  optional AI summary. Web results are capped at 20 per request.
 
 ## [1.12.0] - unreleased (not yet published to PyPI)
 

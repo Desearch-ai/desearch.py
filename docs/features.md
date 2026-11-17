@@ -2,7 +2,7 @@
 
 > Status key: ✅ working · ⚠️ degraded · ❌ broken · 🚧 in progress
 
-This inventory is derived from the current source in `desearch_py/api.py`, `desearch_py/models.py`, `pyproject.toml`, and `setup.py`. Current package version: **1.12.0**.
+This inventory is derived from the current source in `desearch_py/api.py`, `desearch_py/models.py`, `pyproject.toml`, and `setup.py`. Current package version: **1.13.0**.
 
 ## Overview
 
@@ -25,7 +25,7 @@ The SDK exposes one async client class, `Desearch`, plus a large set of typed mo
 | Method | Endpoint | Status | Why this status |
 |---|---|---|---|
 | `ai_search` | `POST /desearch/ai/search` | ⚠️ degraded | Works, but streaming is hardcoded off and the method can fall back to raw `dict` output when model parsing fails. |
-| `ai_web_links_search` | `POST /desearch/ai/search/links/web` | ✅ | Returns typed `WebSearchResponse` data from supported web-like sources. |
+| `ai_web_links_search` | `POST /desearch/ai/search/links/web` | ⚠️ deprecated | Returns typed `WebSearchResponse` data from supported web-like sources and emits `DeprecationWarning`; use `search_api`. |
 | `ai_x_links_search` | `POST /desearch/ai/search/links/twitter` | ✅ | Returns typed `XLinksSearchResponse` results for X links. |
 
 ### Supported AI tools
@@ -92,7 +92,7 @@ The SDK exposes one async client class, `Desearch`, plus a large set of typed mo
 
 | Method | Endpoint | Status | Notes |
 |---|---|---|---|
-| `search_api` | `POST /search` | ✅ | Ranked pages with the best matching passage (`SearchApiResponse`). `mode` (`fast` / `balanced`), `count` (10, 15, 20), `start_date` / `end_date`, `highlights`, `page_text`; unset values are not sent. No method is named plain `search`. |
+| `search_api` | `POST /search` | ✅ | Ranked pages with the best matching passage (`SearchApiResponse`). `mode` (`fast` / `balanced`), `count` (10, 15, 20), `start_date` / `end_date`, `highlights`, `page_text`, `include_domains` / `exclude_domains`, `summary`; unset values are not sent. The response has `meta` (`SearchApiMeta`) and, with `summary=True`, `summary` (`SearchApiSummary` with `SearchApiCitation` items, or `None` when it could not be written). No method is named plain `search`. |
 
 ## TikTok, Instagram, and Facebook features
 
@@ -225,9 +225,9 @@ Company Search and Company Enrich run as background tasks on the People Search e
 
 | Surface | Status | Notes |
 |---|---|---|
-| Poetry metadata in `pyproject.toml` | ✅ | Declares package name `desearch-py`, version `1.12.0`, and runtime deps. |
+| Poetry metadata in `pyproject.toml` | ✅ | Declares package name `desearch-py`, version `1.13.0`, and runtime deps. |
 | setuptools metadata in `setup.py` | ✅ | Declares import package `desearch_py` and package data; reads the version from `desearch_py.__version__`. |
-| Version parity between Poetry and setuptools | ✅ | `desearch_py.__version__` (`1.12.0`) is the source of truth; `tests/test_version_consistency.py` checks `pyproject.toml` and `setup.py` match it. |
+| Version parity between Poetry and setuptools | ✅ | `desearch_py.__version__` (`1.13.0`) is the source of truth; `tests/test_version_consistency.py` checks `pyproject.toml` and `setup.py` match it. |
 | Sphinx source files | ✅ | `docs/conf.py`, `docs/index.rst`, `docs/endpoints.rst` (the social, Search API, and network stats methods), `docs/Makefile`, and `docs/make.bat` are present. |
 | Sphinx branding correctness | ❌ | `docs/conf.py` and generated `docs/_build/` still carry legacy `datura-py` / `Leva` metadata. |
 

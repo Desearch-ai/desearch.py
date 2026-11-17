@@ -1185,10 +1185,40 @@ class SearchApiResult(BaseModel):
     page_text: Optional[str] = None
 
 
+class SearchApiCitation(BaseModel):
+    """A page cited in the summary; ``[index]`` in ``SearchApiSummary.text`` refers to it."""
+
+    model_config = ConfigDict(extra="allow")
+
+    index: int
+    url: str
+    title: str
+
+
+class SearchApiSummary(BaseModel):
+    """Short answer written from the results; every cited page is also in ``results``."""
+
+    model_config = ConfigDict(extra="allow")
+
+    text: str
+    citations: List[SearchApiCitation] = Field(default_factory=list)
+
+
+class SearchApiMeta(BaseModel):
+    """Server latency in milliseconds and notices such as ``Summary unavailable.``"""
+
+    model_config = ConfigDict(extra="allow")
+
+    latency_ms: Optional[int] = None
+    notices: List[str] = Field(default_factory=list)
+
+
 class SearchApiResponse(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     results: List[SearchApiResult]
+    summary: Optional[SearchApiSummary] = None
+    meta: Optional[SearchApiMeta] = None
     cost_usd: Optional[float] = None
     usage_count: Optional[int] = None
     service: Optional[str] = None

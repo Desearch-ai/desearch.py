@@ -2,7 +2,7 @@
 
 Official async Python SDK for the Desearch API.
 
-`desearch-py` is a thin `aiohttp` client for the Desearch public API. It wraps AI search, the Search API, X, TikTok, Instagram, Facebook, YouTube, Reddit, Threads, extraction, People Search, Company Search, and the public network stats behind a single async client class and returns `pydantic` models for most successful responses. The package metadata currently reports **version 1.12.0** and requires **Python 3.10+**. See [CHANGELOG.md](CHANGELOG.md) for unreleased and breaking changes.
+`desearch-py` is a thin `aiohttp` client for the Desearch public API. It wraps the Search API (web search with an optional summary), AI Search (X posts and web), X, TikTok, Instagram, Facebook, YouTube, Reddit, Threads, extraction, People Search, Company Search, and the public network stats behind a single async client class and returns `pydantic` models for most successful responses. The package metadata currently reports **version 1.13.0** and requires **Python 3.10+**. See [CHANGELOG.md](CHANGELOG.md) for unreleased and breaking changes.
 
 ## Package purpose
 
@@ -26,7 +26,7 @@ Two names matter:
 pip install desearch-py
 ```
 
-### Run a basic AI search
+### Run a web search with a summary
 
 ```python
 import asyncio
@@ -35,15 +35,30 @@ from desearch_py import Desearch
 
 async def main() -> None:
     async with Desearch(api_key="your_api_key") as client:
-        result = await client.ai_search(
-            prompt="What happened in Bittensor this week?",
-            tools=["web", "twitter", "reddit"],
-            count=10,
+        response = await client.search_api(
+            "Who won the 2024 Nobel Prize in Physics?",
+            summary=True,
         )
-        print(result)
+        if response.summary:
+            print(response.summary.text)
+        for result in response.results:
+            print(result.title, result.url)
 
 
 asyncio.run(main())
+```
+
+### Run an AI Search over X
+
+AI Search covers X posts, with web results from the Desearch index and an optional AI summary. For web only, use `search_api`.
+
+```python
+result = await client.ai_search(
+    prompt="What are people saying about Bittensor this week?",
+    tools=["twitter", "web"],
+    count=10,
+)
+print(result)
 ```
 
 
@@ -100,25 +115,36 @@ asyncio.run(main())
 
 ## Search API
 
-`search_api` calls `POST /search`: it searches the web and returns ranked pages, each with the passage that best matches the query.
+`search_api` calls `POST /search`: it searches the web (the Desearch index) and returns ranked pages, each with the passage that best matches the query, and optionally a short answer with numbered citations.
 
 ```python
 from desearch_py import SearchApiMode
 
 response = await client.search_api(
     "Who won the 2024 Nobel Prize in Physics?",
-    mode=SearchApiMode.FAST,  # or "balanced" (the API default)
-    count=10,                 # 10, 15 or 20
-    start_date="2024-01-01",  # optional, YYYY-MM-DD
-    page_text=False,          # True adds the full page text
+    mode=SearchApiMode.FAST,             # or "balanced" (the API default)
+    count=10,                            # 10, 15 or 20
+    start_date="2024-01-01",             # optional, YYYY-MM-DD
+    include_domains=["nobelprize.org"],  # at most 100
+    exclude_domains=["pinterest.com"],   # at most 1,200; wins over include_domains
+    page_text=False,                     # True adds the full page text
+    summary=True,                        # adds a short answer with citations
 )
+if response.summary:
+    print(response.summary.text)  # "... [1]"
+    for citation in response.summary.citations:
+        print(citation.index, citation.url, citation.title)
 for result in response.results:
     print(result.title, result.url, result.published_date)
     print(result.highlights)
+print(response.meta.latency_ms, response.meta.notices)
 print(response.cost_usd, response.currency)
 ```
 
-Unset arguments are not sent, so the API defaults apply (`mode="balanced"`, `count=10`, `highlights=True`, `page_text=False`). The SDK has no method named plain `search`.
+- `[n]` in `summary.text` refers to `summary.citations[n].index`; every cited page is also in `results`. The summary has no extra charge.
+- When the summary could not be written, `summary` is `None` and `meta.notices` has `Summary unavailable.`; the results are still returned.
+
+Unset arguments are not sent, so the API defaults apply (`mode="balanced"`, `count=10`, `highlights=True`, `page_text=False`, `summary=False`). The SDK has no method named plain `search`.
 
 ## TikTok, Instagram, and Facebook
 
@@ -633,10 +659,14 @@ It calls each new method once with the smallest counts, reads one more page wher
 
 ## Supported SDK surface
 
+### Search
+
+- `search_api` — `POST /search`, web search with an optional summary
+
 ### AI search
 
-- `ai_search` — also accepts `start_date`/`end_date` (UTC `YYYY-MM-DDTHH:MM:SSZ`), `include_domains`/`exclude_domains`, and `result_type` (`ONLY_LINKS` / `LINKS_WITH_FINAL_SUMMARY`). `date_filter` is a deprecated relative window the API translates into a date range.
-- `ai_web_links_search`
+- `ai_search` — X posts and web with an optional AI summary; also accepts `start_date`/`end_date` (UTC `YYYY-MM-DDTHH:MM:SSZ`), `include_domains`/`exclude_domains`, and `result_type` (`ONLY_LINKS` / `LINKS_WITH_FINAL_SUMMARY`). `date_filter` is a deprecated relative window the API translates into a date range.
+- `ai_web_links_search` — deprecated (emits `DeprecationWarning`); use `search_api`
 - `ai_x_links_search`
 
 ### X / Twitter endpoints

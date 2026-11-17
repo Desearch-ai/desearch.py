@@ -90,9 +90,12 @@ from .models import (
     RedditSubreddit,
     ResponseData,
     ResultType,
+    SearchApiCitation,
+    SearchApiMeta,
     SearchApiMode,
     SearchApiResponse,
     SearchApiResult,
+    SearchApiSummary,
     Sort,
     ThreadsPost,
     ThreadsPostDetail,
@@ -160,7 +163,7 @@ from .models import (
     YouTubeVideo,
 )
 
-__version__ = "1.12.0"
+__version__ = "1.13.0"
 
 __all__ = [
     "Desearch",
@@ -253,9 +256,12 @@ __all__ = [
     "RedditSubreddit",
     "ResponseData",
     "ResultType",
+    "SearchApiCitation",
+    "SearchApiMeta",
     "SearchApiMode",
     "SearchApiResponse",
     "SearchApiResult",
+    "SearchApiSummary",
     "Sort",
     "ThreadsPost",
     "ThreadsPostDetail",
