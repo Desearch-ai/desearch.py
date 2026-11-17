@@ -5,6 +5,7 @@ import codecs
 import json
 import logging
 import math
+import warnings
 from typing import (
     Any,
     AsyncGenerator,
@@ -617,7 +618,7 @@ class Desearch:
         DesearchResponse[Union[ResponseData, Dict[str, Any]]],
     ]:
         """
-        AI-powered multi-source contextual search.
+        AI Search: X posts and web (from our index) with an optional AI summary; for web-only search use :meth:`search_api`.
 
         Args:
             prompt (str): Search query prompt.
@@ -676,7 +677,7 @@ class Desearch:
         include_metadata: bool = False,
     ) -> Union[WebSearchResponse, DesearchResponse[WebSearchResponse]]:
         """
-        Search for raw links across web sources using AI.
+        Deprecated: use :meth:`search_api` (``POST /search``). Search for raw links across web sources using AI.
 
         Args:
             prompt (str): Search query prompt.
@@ -686,6 +687,11 @@ class Desearch:
         Returns:
             WebSearchResponse: Structured link results from selected platforms.
         """
+        warnings.warn(
+            "ai_web_links_search is deprecated; use search_api (POST /search).",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         url = f"{self.base_url}/desearch/ai/search/links/web"
         payload = {
             k: v
@@ -1206,29 +1212,13 @@ class Desearch:
         end_date: Optional[str] = None,
         highlights: Optional[bool] = None,
         page_text: Optional[bool] = None,
+        include_domains: Optional[List[str]] = None,
+        exclude_domains: Optional[List[str]] = None,
+        summary: Optional[bool] = None,
         *,
         include_metadata: bool = False,
     ) -> Union[SearchApiResponse, DesearchResponse[SearchApiResponse]]:
-        """
-        Search the web and return ranked pages, each with the passage that best matches the query.
-
-        Calls ``POST /search``. Unset arguments are not sent, so the API
-        defaults apply.
-
-        Args:
-            query (str): Search query (1-2000 characters).
-            mode (Optional[Union[SearchApiMode, str]]): ``fast`` returns results sooner;
-                ``balanced`` (the API default) favors relevance.
-            count (Optional[int]): Number of results: 10 (the API default), 15 or 20.
-            start_date (Optional[str]): Only pages published on or after this date (YYYY-MM-DD).
-            end_date (Optional[str]): Only pages published on or before this date (YYYY-MM-DD).
-            highlights (Optional[bool]): Include the passage that best matches the query
-                (the API default is ``True``).
-            page_text (Optional[bool]): Include the full page text (the API default is ``False``).
-
-        Returns:
-            SearchApiResponse: Ranked results and the cost of the request.
-        """
+        """Search the web (our index) via ``POST /search``, optionally with a short answer citing the results; unset arguments are not sent."""
         url = f"{self.base_url}/search"
         payload = {
             k: v
@@ -1240,6 +1230,9 @@ class Desearch:
                 "end_date": end_date,
                 "highlights": highlights,
                 "page_text": page_text,
+                "include_domains": include_domains,
+                "exclude_domains": exclude_domains,
+                "summary": summary,
             }.items()
             if v is not None
         }

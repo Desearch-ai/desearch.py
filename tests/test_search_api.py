@@ -7,6 +7,7 @@ from desearch_py import (
     Desearch,
     DesearchAPIError,
     DesearchResponse,
+    SearchApiCitation,
     SearchApiMode,
     SearchApiResponse,
     SearchApiResult,
@@ -22,6 +23,7 @@ SEARCH_BODY = {
         },
         {"url": "https://example.com/other", "title": "Other"},
     ],
+    "meta": {"latency_ms": 1800, "notices": []},
     "cost_usd": 0.005,
     "usage_count": 1,
     "service": "search",
@@ -106,6 +108,9 @@ class SearchApiTests(unittest.IsolatedAsyncioTestCase):
             end_date="2026-09-17",
             highlights=False,
             page_text=True,
+            include_domains=["bbc.com"],
+            exclude_domains=["pinterest.com"],
+            summary=True,
         )
         await client.search_api("bittensor", mode="balanced", count=15)
 
@@ -119,6 +124,9 @@ class SearchApiTests(unittest.IsolatedAsyncioTestCase):
                 "end_date": "2026-09-17",
                 "highlights": False,
                 "page_text": True,
+                "include_domains": ["bbc.com"],
+                "exclude_domains": ["pinterest.com"],
+                "summary": True,
             },
         )
         self.assertEqual(
@@ -151,6 +159,42 @@ class SearchApiTests(unittest.IsolatedAsyncioTestCase):
         result = cast(SearchApiResponse, await client.search_api("q"))
         self.assertIsNone(result.cost_usd)
         self.assertEqual(result.results[0].url, "u")
+
+    async def test_parses_summary_and_meta(self):
+        body = dict(
+            SEARCH_BODY,
+            summary={
+                "text": "Hopfield and Hinton won it [1].",
+                "citations": [
+                    {"index": 1, "url": "https://example.com/nobel", "title": "Nobel"}
+                ],
+            },
+        )
+        unavailable = dict(
+            SEARCH_BODY,
+            summary=None,
+            meta={"latency_ms": 900, "notices": ["Summary unavailable."]},
+        )
+        client = self.make_client(
+            FakeResponse(json_data=body), FakeResponse(json_data=unavailable)
+        )
+
+        result = cast(SearchApiResponse, await client.search_api("q", summary=True))
+        assert result.summary is not None
+        self.assertIsInstance(result.summary.citations[0], SearchApiCitation)
+        self.assertEqual(result.summary.citations[0].index, 1)
+        assert result.meta is not None
+        self.assertEqual(result.meta.latency_ms, 1800)
+
+        result = cast(SearchApiResponse, await client.search_api("q", summary=True))
+        self.assertIsNone(result.summary)
+        assert result.meta is not None
+        self.assertEqual(result.meta.notices, ["Summary unavailable."])
+
+    async def test_ai_web_links_search_warns_deprecated(self):
+        client = self.make_client(FakeResponse(json_data={}))
+        with self.assertWarnsRegex(DeprecationWarning, "search_api"):
+            await client.ai_web_links_search(prompt="q", tools=["web"])
 
     def test_no_method_is_named_plain_search(self):
         # llama-index-desearch 0.0.2 still calls a legacy client.search(...).
